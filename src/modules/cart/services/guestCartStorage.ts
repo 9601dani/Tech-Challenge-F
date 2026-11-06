@@ -20,6 +20,10 @@ export function getOrCreateGuestCartToken(): string {
   return token;
 }
 
+export function readGuestCartToken(): string | null {
+  return localStorage.getItem(GUEST_CART_TOKEN_KEY);
+}
+
 export function readGuestCart(): CartItem[] {
   const storedCart = localStorage.getItem(GUEST_CART_KEY);
   if (!storedCart) return [];

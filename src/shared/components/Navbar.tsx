@@ -1,13 +1,12 @@
 import { Link } from "react-router-dom";
 
 interface NavbarProps {
-  cartItems: number;
   isAuthenticated: boolean;
-  userEmail?: string;
+  userName?: string;
   onLogout: () => void;
 }
 
-export function Navbar({ cartItems, isAuthenticated, userEmail, onLogout }: NavbarProps) {
+export function Navbar({ isAuthenticated, userName, onLogout }: NavbarProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-[#d9dcf4] bg-white/95 backdrop-blur">
       <div className="mx-auto flex max-w-7xl items-center justify-between gap-6 px-5 py-4 lg:px-8">
@@ -16,17 +15,13 @@ export function Navbar({ cartItems, isAuthenticated, userEmail, onLogout }: Navb
         </Link>
 
         <div className="flex items-center gap-2 sm:gap-4">
-          <button className="relative rounded-xl p-2 text-[#0f172a] transition hover:bg-[#eef0ff]" type="button" aria-label="Ver carrito">
-            {cartItems > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-[#dc2626] px-1 text-[11px] font-bold text-white">
-                {cartItems}
-              </span>
-            )}
-          </button>
           {isAuthenticated ? (
-            <button className="hidden text-sm font-semibold text-[#2f2eaa] sm:block" onClick={onLogout} type="button">
-              {userEmail} · Salir
-            </button>
+            <div className="flex items-center gap-3">
+              <span className="hidden text-sm font-semibold text-[#2f2eaa] sm:block">{userName}</span>
+              <button className="rounded-xl border border-[#dc2626] px-3 py-2 text-sm font-bold text-[#dc2626] transition hover:bg-[#fef2f2]" onClick={onLogout} type="button">
+                Salir
+              </button>
+            </div>
           ) : (
             <>
               <Link className="hidden text-sm font-semibold text-[#2f2eaa] sm:block" to="/login">Iniciar sesión</Link>

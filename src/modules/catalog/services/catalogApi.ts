@@ -31,7 +31,14 @@ const colorsByCategory: Record<string, string> = {
   Alimentos: "#fbbf24",
 };
 
+const productListRequests = new Map<string, Promise<ProductCardData[]>>();
+const variantSkuRequests = new Map<string, Promise<ProductVariantOption[]>>();
+
 export async function listPublicProducts(search = ""): Promise<ProductCardData[]> {
+  const requestKey = search.trim().toLocaleLowerCase();
+  const existingRequest = productListRequests.get(requestKey);
+  if (existingRequest) return existingRequest;
+
   const query = new URLSearchParams({
     companyId: import.meta.env.VITE_COMPANY_ID ?? "1",
     page: "1",
@@ -40,7 +47,7 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
 
   if (search.trim()) query.set("search", search.trim());
 
-  const response = await httpRequest<ProductListResponse>(`/catalog/products?${query.toString()}`);
+  const request = httpRequest<ProductListResponse>(`/catalog/products?${query.toString()}`).then((response) => {
 
   const visibleProducts = response.data
     .filter((product) => product.showPos)
@@ -88,7 +95,12 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
     });
   }
 
-  return [...grouped.values()];
+    return [...grouped.values()];
+  });
+
+  productListRequests.set(requestKey, request);
+  void request.finally(() => productListRequests.delete(requestKey)).catch(() => undefined);
+  return request;
 }
 
 interface ProductDetailResponse {
@@ -127,10 +139,12 @@ export async function getProductVariants(productId: number): Promise<ProductVari
 }
 
 export async function getProductVariantBySku(sku: string): Promise<ProductVariantOption[]> {
-  const companyId = import.meta.env.VITE_COMPANY_ID ?? "1";
-  const response = await httpRequest<ProductDetailResponse[]>(`/catalog/products/sku/${encodeURIComponent(sku)}?companyId=${encodeURIComponent(companyId)}`);
+  const requestKey = sku.trim().toLocaleLowerCase();
+  const existingRequest = variantSkuRequests.get(requestKey);
+  if (existingRequest) return existingRequest;
 
-  return (Array.isArray(response) ? response : []).map((variant) => ({
+  const companyId = import.meta.env.VITE_COMPANY_ID ?? "1";
+  const request = httpRequest<ProductDetailResponse[]>(`/catalog/products/sku/${encodeURIComponent(sku)}?companyId=${encodeURIComponent(companyId)}`).then((response) => (Array.isArray(response) ? response : []).map((variant) => ({
     id: variant.variantId,
     name: variant.variantName ?? "Predeterminado",
     sku: variant.sku,
@@ -147,5 +161,9 @@ export async function getProductVariantBySku(sku: string): Promise<ProductVarian
         };
       })
       .filter((attribute) => attribute.attributeName.length > 0 && attribute.attributeValue.length > 0),
-  }));
+  })));
+
+  variantSkuRequests.set(requestKey, request);
+  void request.finally(() => variantSkuRequests.delete(requestKey)).catch(() => undefined);
+  return request;
 }

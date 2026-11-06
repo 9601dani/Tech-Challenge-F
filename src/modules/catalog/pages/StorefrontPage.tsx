@@ -4,8 +4,8 @@ import { ProductCard } from "../components/ProductCard";
 import { listPublicProducts } from "../services/catalogApi";
 import type { CartItem, ProductCardData, ProductVariantAttribute } from "../types/catalog.types";
 import { getProductVariantBySku } from "../services/catalogApi";
-import { addCartItem, clearCartItems, getCart, removeCartItem, updateCartItem } from "../../cart/services/cartApi";
-import { clearGuestCart, readGuestCart, saveGuestCart } from "../../cart/services/guestCartStorage";
+import { addCartItem, addGuestCartItem, clearCartItems, clearGuestCartBackend, getCart, getGuestCart, removeCartItem, removeGuestCartItem, updateCartItem, updateGuestCartItem } from "../../cart/services/cartApi";
+import { clearGuestCart, readGuestCart, readGuestCartToken, saveGuestCart } from "../../cart/services/guestCartStorage";
 
 interface StorefrontPageProps {
   onCartChange: (items: CartItem[]) => void;
@@ -94,10 +94,15 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
   useEffect(() => {
     if (!isAuthenticated) {
-      const guestCart = readGuestCart();
-      const hydratedGuestCart = enrichCartAvailability(guestCart);
-      setCart(hydratedGuestCart);
-      onCartChange(hydratedGuestCart);
+      const loadGuestCart = readGuestCartToken() ? getGuestCart() : Promise.resolve(readGuestCart());
+      loadGuestCart
+        .then(async (items) => {
+          const hydratedGuestCart = await hydrateCart(items);
+          saveGuestCart(hydratedGuestCart);
+          setCart(hydratedGuestCart);
+          onCartChange(hydratedGuestCart);
+        })
+        .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "No se pudo cargar el carrito visitante"));
       return;
     }
 
@@ -142,24 +147,16 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
   async function addToCart(product: ProductCardData) {
     if (!isAuthenticated) {
-      const currentItem = cart.find((item) => item.id === product.id);
-      const nextQuantity = (currentItem?.quantity ?? 0) + 1;
-
-      if (product.availableQuantity !== undefined && nextQuantity > product.availableQuantity) {
-        setError(`Solo hay ${product.availableQuantity} unidad(es) disponible(s) de ${product.name}.`);
-        return;
+      try {
+        const nextCart = await addGuestCartItem(product.id);
+        const hydratedGuestCart = await hydrateCart(nextCart);
+        saveGuestCart(hydratedGuestCart);
+        setCart(hydratedGuestCart);
+        onCartChange(hydratedGuestCart);
+        setError("");
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : "No se pudo agregar el producto al carrito visitante");
       }
-
-      const nextCart = currentItem
-        ? cart.map((item) => item.id === product.id
-          ? { ...item, quantity: nextQuantity, availableQuantity: product.availableQuantity }
-          : item)
-        : [...cart, { ...product, quantity: 1 }];
-
-      saveGuestCart(nextCart);
-      setCart(nextCart);
-      onCartChange(nextCart);
-      setError("");
       return;
     }
 
@@ -187,13 +184,20 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
     }
 
     if (!isAuthenticated || item.saleItemId === undefined) {
-      const nextCart = quantity <= 0
-        ? cart.filter((cartItem) => cartItem.id !== productId)
-        : cart.map((cartItem) => cartItem.id === productId ? { ...cartItem, quantity } : cartItem);
-      saveGuestCart(nextCart);
-      setCart(nextCart);
-      onCartChange(nextCart);
-      setError("");
+      try {
+        const nextCart = item.saleItemId === undefined
+          ? cart.filter((cartItem) => cartItem.id !== productId)
+          : quantity <= 0
+            ? await removeGuestCartItem(item.saleItemId)
+            : await updateGuestCartItem(item.saleItemId, quantity);
+        const hydratedGuestCart = await hydrateCart(nextCart);
+        saveGuestCart(hydratedGuestCart);
+        setCart(hydratedGuestCart);
+        onCartChange(hydratedGuestCart);
+        setError("");
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : "No se pudo actualizar el carrito visitante");
+      }
       return;
     }
 
@@ -212,10 +216,14 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
   async function handleClearCart() {
     if (!isAuthenticated) {
-      clearGuestCart();
-      setCart([]);
-      onCartChange([]);
-      setError("");
+      clearGuestCartBackend()
+        .then(() => {
+          clearGuestCart();
+          setCart([]);
+          onCartChange([]);
+          setError("");
+        })
+        .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "No se pudo limpiar el carrito visitante"));
       return;
     }
 
@@ -237,7 +245,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
   return (
     <main className="min-h-screen bg-[#f7f7ff] text-[#0f172a]">
-      <section className="mx-auto grid max-w-7xl gap-8 px-5 py-12 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-8" id="products">
+      <section className="mx-auto grid w-full max-w-none gap-8 px-0 py-8 sm:py-10 lg:grid-cols-[minmax(0,1fr)_380px]" id="products">
         <div>
           <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-end">
             <div>
@@ -252,7 +260,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
           {loading && <p className="py-20 text-center text-[#64748b]">Cargando productos...</p>}
           {error && <p className="mt-8 rounded-xl bg-red-50 px-4 py-3 text-center text-sm text-red-700">{error}</p>}
-          {!loading && !error && <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+          {!loading && !error && <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {products.map((product) => <ProductCard key={product.id} onAdd={addToCart} product={product} />)}
           </div>}
           {!loading && !error && products.length === 0 && <p className="py-20 text-center text-[#64748b]">No encontramos productos con esos criterios.</p>}
