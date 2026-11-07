@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ProductCard } from "../components/ProductCard";
-import { listPublicProducts } from "../services/catalogApi";
+import { getManufacturedAvailability, listPublicProducts } from "../services/catalogApi";
 import type { CartItem, ProductCardData, ProductVariantAttribute } from "../types/catalog.types";
 import { getProductVariantBySku } from "../services/catalogApi";
 import { addCartItem, addGuestCartItem, clearCartItems, clearGuestCartBackend, getCart, getGuestCart, removeCartItem, removeGuestCartItem, updateCartItem, updateGuestCartItem } from "../../cart/services/cartApi";
 import { clearGuestCart, readGuestCart, readGuestCartToken, saveGuestCart } from "../../cart/services/guestCartStorage";
+import type { Permission } from "../../auth/types/auth.types";
 
 interface StorefrontPageProps {
   onCartChange: (items: CartItem[]) => void;
   isAuthenticated: boolean;
+  permissions?: Permission[];
 }
 
 const formatVariantLines = (productName: string, variantName: string | null | undefined): string[] => {
@@ -51,7 +53,7 @@ const getCartVariantLines = (item: CartItem): string[] => {
   return attributeLines.length > 0 ? attributeLines : formatVariantLines(item.name, item.variantName);
 };
 
-export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPageProps) {
+export function StorefrontPage({ onCartChange, isAuthenticated, permissions = [] }: StorefrontPageProps) {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -59,18 +61,32 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  function enrichCartAvailability(items: CartItem[]): CartItem[] {
+  async function enrichCartAvailability(items: CartItem[]): Promise<CartItem[]> {
     const availabilityByVariant = new Map<number, number>();
     products.forEach((product) => {
-      product.variants?.forEach((variant) => availabilityByVariant.set(variant.id, variant.availableQuantity));
+      product.variants?.forEach((variant) => availabilityByVariant.set(Number(variant.id), variant.availableQuantity));
       if (product.variants?.length === 0 || !product.variants) {
-        availabilityByVariant.set(product.id, product.availableQuantity ?? 0);
+        availabilityByVariant.set(Number(product.id), product.availableQuantity ?? 0);
       }
     });
 
+    const compositeProductIds = [...new Set([
+      ...products.filter((product) => product.isComposite && product.productId).map((product) => Number(product.productId)),
+      ...items.filter((item) => item.isComposite && item.productId).map((item) => Number(item.productId)),
+    ])];
+
+    await Promise.all(compositeProductIds.map(async (productId) => {
+      try {
+        const availability = await getManufacturedAvailability(productId);
+        availability.forEach((variant) => availabilityByVariant.set(Number(variant.variantId), variant.availableQuantity));
+      } catch {
+        // Se conserva el último valor disponible si no se puede consultar la receta.
+      }
+    }));
+
     return items.map((item) => ({
       ...item,
-      availableQuantity: availabilityByVariant.get(item.id) ?? item.availableQuantity,
+      availableQuantity: availabilityByVariant.get(Number(item.id)) ?? item.availableQuantity,
     }));
   }
 
@@ -89,7 +105,8 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
   }
 
   async function hydrateCart(items: CartItem[]): Promise<CartItem[]> {
-    return enrichCartAttributes(enrichCartAvailability(items));
+    const availableItems = await enrichCartAvailability(items);
+    return enrichCartAttributes(availableItems);
   }
 
   useEffect(() => {
@@ -119,9 +136,10 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
   useEffect(() => {
     if (!products.length || !cart.length) return;
-    const enrichedItems = enrichCartAvailability(cart);
-    setCart(enrichedItems);
-    onCartChange(enrichedItems);
+    void enrichCartAvailability(cart).then((enrichedItems) => {
+      setCart(enrichedItems);
+      onCartChange(enrichedItems);
+    });
   }, [products]);
 
   useEffect(() => {
@@ -162,10 +180,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
 
     try {
       const nextCart = await addCartItem(product.id);
-      const withAvailability = nextCart.map((item) => item.id === product.id
-        ? { ...item, availableQuantity: product.availableQuantity }
-        : item);
-      const enrichedItems = await enrichCartAttributes(withAvailability);
+      const enrichedItems = await hydrateCart(nextCart);
       setCart(enrichedItems);
       onCartChange(enrichedItems);
       setError("");
@@ -242,6 +257,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
   }
 
   const cartSubtotal = cart.reduce((total, item) => total + item.price * item.quantity, 0);
+  const canEditProducts = permissions.some((permission) => permission.feature === "CATALOG_PRODUCTS" && permission.enabled && permission.canEdit);
 
   return (
     <main className="min-h-screen bg-[#f7f7ff] text-[#0f172a]">
@@ -252,6 +268,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
               <p className="text-sm font-bold uppercase tracking-[0.25em] text-[#dc2626]">Catálogo</p>
               <h2 className="mt-2 text-3xl font-black text-[#0f172a] sm:text-4xl">Productos destacados</h2>
             </div>
+            {canEditProducts && <button className="rounded-xl bg-[#2f2eaa] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#25248e]" onClick={() => navigate("/catalog/products/manage")} type="button">Editar productos</button>}
             <label className="flex w-full max-w-sm items-center gap-3 rounded-xl border border-[#d9dcf4] bg-white px-4 py-3 text-[#64748b] shadow-sm">
               <span>⌕</span>
               <input className="w-full bg-transparent text-sm text-[#0f172a] outline-none" onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre o SKU" value={search} />
@@ -261,7 +278,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated }: StorefrontPage
           {loading && <p className="py-20 text-center text-[#64748b]">Cargando productos...</p>}
           {error && <p className="mt-8 rounded-xl bg-red-50 px-4 py-3 text-center text-sm text-red-700">{error}</p>}
           {!loading && !error && <div className="mt-8 grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {products.map((product) => <ProductCard key={product.id} onAdd={addToCart} product={product} />)}
+            {products.map((product) => <ProductCard directVariantMatch={Boolean(search.trim() && product.sku.trim().toLocaleLowerCase() === search.trim().toLocaleLowerCase())} key={product.id} onAdd={addToCart} product={product} />)}
           </div>}
           {!loading && !error && products.length === 0 && <p className="py-20 text-center text-[#64748b]">No encontramos productos con esos criterios.</p>}
         </div>

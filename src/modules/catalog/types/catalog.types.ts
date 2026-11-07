@@ -27,6 +27,8 @@ export interface ProductVariantOption {
 }
 
 export interface ProductVariantAttribute {
+  attributeId?: number;
+  attributeValueId?: number;
   attributeName: string;
   attributeValue: string;
 }

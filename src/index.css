@@ -48,6 +48,23 @@ body {
   margin: 0;
 }
 
+.field {
+  display: block;
+  width: 100%;
+  margin-top: 0.45rem;
+  border: 1px solid #d9dcf4;
+  border-radius: 0.75rem;
+  background: #fafaff;
+  padding: 0.7rem 0.8rem;
+  color: #0f172a;
+  outline: none;
+}
+
+.field:focus {
+  border-color: #2f2eaa;
+  box-shadow: 0 0 0 3px rgba(47, 46, 170, 0.1);
+}
+
 .shopcart-modal-subtitle {
   color: #64748b;
   font-size: 0.9rem;

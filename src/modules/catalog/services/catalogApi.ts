@@ -1,6 +1,60 @@
 import { httpRequest } from "../../../shared/services/httpClient";
 import type { ProductCardData, ProductVariantAttribute, ProductVariantOption } from "../types/catalog.types";
 
+export interface CatalogProductAdminItem {
+  productId: number;
+  companyId: number;
+  categoryId: number | null;
+  categoryName: string | null;
+  code: string;
+  name: string;
+  description: string | null;
+  isComposite: boolean;
+  trackInventory: boolean;
+  showPos: boolean;
+  active?: boolean;
+  variantId: number;
+  sku: string;
+  variantName: string | null;
+  price: number | null;
+  stockQuantity: number;
+  availableQuantity: number;
+}
+
+export interface CatalogCategory {
+  id: number;
+  name: string;
+  description: string | null;
+  parentCategoryId: number | null;
+  active: boolean;
+}
+
+export interface CreateCatalogProductInput {
+  categoryId?: number;
+  code: string;
+  name: string;
+  description?: string;
+  isComposite: boolean;
+  trackInventory: boolean;
+  showPos: boolean;
+  variants?: Array<{
+    sku: string;
+    name: string;
+    price: number;
+    initialQuantity: number;
+  }>;
+}
+
+export interface UpdateCatalogProductInput {
+  categoryId?: number;
+  code: string;
+  name: string;
+  description?: string;
+  isComposite: boolean;
+  trackInventory: boolean;
+  showPos: boolean;
+}
+
 interface ProductListResponse {
   data: Array<{
     productId: number;
@@ -34,6 +88,139 @@ const colorsByCategory: Record<string, string> = {
 const productListRequests = new Map<string, Promise<ProductCardData[]>>();
 const variantSkuRequests = new Map<string, Promise<ProductVariantOption[]>>();
 
+export async function listCatalogProducts(search = ""): Promise<CatalogProductAdminItem[]> {
+  const query = new URLSearchParams({
+    companyId: import.meta.env.VITE_COMPANY_ID ?? "1",
+    page: "1",
+    pageSize: "100",
+  });
+  if (search.trim()) query.set("search", search.trim());
+  const response = await httpRequest<{ data: CatalogProductAdminItem[] }>(`/catalog/products/admin?${query.toString()}`);
+  return response.data ?? [];
+}
+
+export async function listCatalogCategories(): Promise<CatalogCategory[]> {
+  const response = await httpRequest<CatalogCategory[]>(`/catalog/categories?companyId=${encodeURIComponent(import.meta.env.VITE_COMPANY_ID ?? "1")}`);
+  return Array.isArray(response) ? response : [];
+}
+
+export function createCatalogCategory(input: { name: string; description?: string; parentCategoryId?: number }): Promise<CatalogCategory> {
+  return httpRequest<CatalogCategory>("/catalog/categories", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCatalogCategory(categoryId: number, input: { name: string; description?: string; parentCategoryId?: number }): Promise<CatalogCategory> {
+  return httpRequest<CatalogCategory>(`/catalog/categories/${categoryId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteCatalogCategory(categoryId: number): Promise<void> {
+  return httpRequest<void>(`/catalog/categories/${categoryId}`, { method: "DELETE" });
+}
+
+export function createCatalogProduct(input: CreateCatalogProductInput): Promise<{ id: number }> {
+  return httpRequest<{ id: number }>("/catalog/products", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateCatalogProduct(productId: number, input: UpdateCatalogProductInput): Promise<void> {
+  return httpRequest<void>(`/catalog/products/${productId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function deleteCatalogProduct(productId: number): Promise<void> {
+  return httpRequest<void>(`/catalog/products/${productId}`, { method: "DELETE" });
+}
+
+export function updateCatalogVariant(variantId: number, input: { sku: string; name?: string; price: number }): Promise<void> {
+  return httpRequest<void>(`/catalog/variants/${variantId}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export function createCatalogVariant(productId: number, input: { sku: string; name?: string; price: number; initialQuantity?: number; attributes?: Array<{ attributeId: number; attributeValueId: number }> }): Promise<{ id: number }> {
+  return httpRequest<{ id: number }>(`/catalog/products/${productId}/variants`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export interface CatalogComponent {
+  parentVariantId: number;
+  componentVariantId: number;
+  componentSku: string;
+  componentName: string;
+  componentProductName: string;
+  quantity: number;
+}
+
+export function listCatalogComponents(productId: number): Promise<CatalogComponent[]> {
+  return httpRequest<CatalogComponent[]>(`/catalog/products/${productId}/components`);
+}
+
+export function replaceCatalogComponents(variantId: number, components: Array<{ componentVariantId: number; quantity: number }>): Promise<void> {
+  return httpRequest<void>(`/catalog/variants/${variantId}/components`, {
+    method: "PUT",
+    body: JSON.stringify({ components }),
+  });
+}
+
+export interface CatalogAttributeValue {
+  attributeValueId: number;
+  value: string;
+  sortOrder: number;
+}
+
+export interface CatalogAttribute {
+  attributeId: number;
+  name: string;
+  attributeType: string;
+  values: CatalogAttributeValue[];
+}
+
+export async function listCatalogAttributes(): Promise<CatalogAttribute[]> {
+  const rows = await httpRequest<Array<{ IDAttribute: number; Name: string; AttributeType: string; IDAttributeValue: number | null; Value: string | null; SortOrder: number | null }>>("/catalog/attributes");
+  const grouped = new Map<number, CatalogAttribute>();
+  rows.forEach((row) => {
+    const raw = row as unknown as Record<string, unknown>;
+    const get = (name: string): unknown => {
+      const key = Object.keys(raw).find((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
+      return key ? raw[key] : undefined;
+    };
+    const attributeId = Number(get("IDAttribute") ?? 0);
+    const attributeName = String(get("Name") ?? "");
+    const attributeType = String(get("AttributeType") ?? "TEXT");
+    const valueId = get("IDAttributeValue");
+    const valueText = get("Value");
+    const attribute = grouped.get(attributeId) ?? { attributeId, name: attributeName, attributeType, values: [] };
+    if (valueId !== null && valueId !== undefined && valueText !== null && valueText !== undefined) attribute.values.push({ attributeValueId: Number(valueId), value: String(valueText), sortOrder: Number(get("SortOrder") ?? 0) });
+    grouped.set(attributeId, attribute);
+  });
+  return [...grouped.values()];
+}
+
+export function replaceCatalogVariantAttributes(variantId: number, attributes: Array<{ attributeId: number; attributeValueId: number }>): Promise<void> {
+  return httpRequest<void>(`/catalog/variants/${variantId}/attributes`, { method: "PUT", body: JSON.stringify({ attributes }) });
+}
+
+export function createCatalogAttribute(name: string, attributeType = "TEXT"): Promise<unknown> {
+  return httpRequest<unknown>("/catalog/attributes", { method: "POST", body: JSON.stringify({ name, attributeType }) });
+}
+
+export function createCatalogAttributeValue(attributeId: number, value: string, sortOrder = 0): Promise<unknown> {
+  return httpRequest<unknown>(`/catalog/attributes/${attributeId}/values`, { method: "POST", body: JSON.stringify({ value, sortOrder }) });
+}
+
+export function reactivateCatalogProduct(productId: number): Promise<void> {
+  return httpRequest<void>(`/catalog/products/${productId}/reactivate`, { method: "POST" });
+}
+
 export async function listPublicProducts(search = ""): Promise<ProductCardData[]> {
   const requestKey = search.trim().toLocaleLowerCase();
   const existingRequest = productListRequests.get(requestKey);
@@ -47,7 +234,7 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
 
   if (search.trim()) query.set("search", search.trim());
 
-  const request = httpRequest<ProductListResponse>(`/catalog/products?${query.toString()}`).then((response) => {
+  const request = httpRequest<ProductListResponse>(`/catalog/products?${query.toString()}`).then(async (response): Promise<ProductCardData[]> => {
 
   const visibleProducts = response.data
     .filter((product) => product.showPos)
@@ -58,6 +245,52 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
       reservedQuantity: Number(product.reservedQuantity),
       availableQuantity: Number(product.availableQuantity),
     }));
+
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const exactSkuMatches = normalizedSearch
+    ? visibleProducts.filter((product) => product.sku.trim().toLocaleLowerCase() === normalizedSearch)
+    : [];
+
+  if (exactSkuMatches.length > 0) {
+    return Promise.all(exactSkuMatches.map(async (product) => {
+      let availableQuantity = product.availableQuantity;
+
+      if (product.isComposite) {
+        try {
+          const manufactured = await getManufacturedAvailability(product.productId);
+          availableQuantity = manufactured.find((variant) => variant.variantId === product.variantId)?.availableQuantity ?? availableQuantity;
+        } catch {
+          // Se conserva el valor entregado por el catálogo como respaldo.
+        }
+      }
+
+      const variant: ProductVariantOption = {
+        id: product.variantId,
+        name: product.variantName ?? "Predeterminado",
+        sku: product.sku,
+        price: product.price,
+        stockQuantity: product.stockQuantity,
+        reservedQuantity: product.reservedQuantity,
+        availableQuantity,
+      };
+
+      return {
+        id: product.variantId,
+        productId: product.productId,
+        name: product.name,
+        category: product.categoryName ?? "General",
+        price: product.price,
+        sku: product.sku,
+        isComposite: product.isComposite,
+        showPos: product.showPos,
+        stockQuantity: product.stockQuantity,
+        reservedQuantity: product.reservedQuantity,
+        availableQuantity,
+        variants: [variant],
+        color: colorsByCategory[product.categoryName ?? ""] ?? "#6366f1",
+      } satisfies ProductCardData;
+    }));
+  }
 
   const grouped = new Map<number, ProductCardData>();
 
@@ -114,12 +347,42 @@ interface ProductDetailResponse {
   attributes: ProductVariantAttribute[];
 }
 
+export interface ManufacturedAvailability {
+  productId: number;
+  productName: string;
+  isComposite: boolean;
+  variantId: number;
+  sku: string;
+  variantName: string | null;
+  availableQuantity: number;
+  parentPhysicalQuantity: number;
+  parentReservedQuantity: number;
+  isManufactured: boolean;
+  components: Array<{
+    componentVariantId: number;
+    componentSku: string;
+    componentVariantName: string | null;
+    componentProductName: string;
+    requiredQuantity: number;
+    physicalQuantity: number;
+    reservedQuantity: number;
+    availableQuantity: number;
+    possibleQuantity: number;
+  }>;
+}
+
+export async function getManufacturedAvailability(productId: number): Promise<ManufacturedAvailability[]> {
+  const companyId = import.meta.env.VITE_COMPANY_ID ?? "1";
+  const response = await httpRequest<ManufacturedAvailability[]>(`/catalog/products/${productId}/manufactured-availability?companyId=${encodeURIComponent(companyId)}`);
+  return Array.isArray(response) ? response : [];
+}
+
 export async function getProductVariants(productId: number): Promise<ProductVariantOption[]> {
   const companyId = import.meta.env.VITE_COMPANY_ID ?? "1";
   const response = await httpRequest<ProductDetailResponse[]>(`/catalog/products/${productId}?companyId=${encodeURIComponent(companyId)}`);
 
   return (Array.isArray(response) ? response : []).map((variant) => ({
-    id: variant.variantId,
+    id: Number(variant.variantId),
     name: variant.variantName ?? "Predeterminado",
     sku: variant.sku,
     price: Number(variant.price ?? 0),
@@ -132,6 +395,8 @@ export async function getProductVariants(productId: number): Promise<ProductVari
         return {
           attributeName: String(rawAttribute.attributeName ?? rawAttribute.AttributeName ?? ""),
           attributeValue: String(rawAttribute.attributeValue ?? rawAttribute.AttributeValue ?? ""),
+          attributeId: Number(rawAttribute.attributeId ?? rawAttribute.AttributeId ?? 0) || undefined,
+          attributeValueId: Number(rawAttribute.attributeValueId ?? rawAttribute.AttributeValueId ?? 0) || undefined,
         };
       })
       .filter((attribute) => attribute.attributeName.length > 0 && attribute.attributeValue.length > 0),
@@ -145,7 +410,7 @@ export async function getProductVariantBySku(sku: string): Promise<ProductVarian
 
   const companyId = import.meta.env.VITE_COMPANY_ID ?? "1";
   const request = httpRequest<ProductDetailResponse[]>(`/catalog/products/sku/${encodeURIComponent(sku)}?companyId=${encodeURIComponent(companyId)}`).then((response) => (Array.isArray(response) ? response : []).map((variant) => ({
-    id: variant.variantId,
+    id: Number(variant.variantId),
     name: variant.variantName ?? "Predeterminado",
     sku: variant.sku,
     price: Number(variant.price ?? 0),
@@ -158,6 +423,8 @@ export async function getProductVariantBySku(sku: string): Promise<ProductVarian
         return {
           attributeName: String(rawAttribute.attributeName ?? rawAttribute.AttributeName ?? ""),
           attributeValue: String(rawAttribute.attributeValue ?? rawAttribute.AttributeValue ?? ""),
+          attributeId: Number(rawAttribute.attributeId ?? rawAttribute.AttributeId ?? 0) || undefined,
+          attributeValueId: Number(rawAttribute.attributeValueId ?? rawAttribute.AttributeValueId ?? 0) || undefined,
         };
       })
       .filter((attribute) => attribute.attributeName.length > 0 && attribute.attributeValue.length > 0),
