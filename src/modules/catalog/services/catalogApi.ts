@@ -42,6 +42,7 @@ export interface CreateCatalogProductInput {
     name: string;
     price: number;
     initialQuantity: number;
+    components?: Array<{ componentVariantId: number; quantity: number }>;
   }>;
 }
 

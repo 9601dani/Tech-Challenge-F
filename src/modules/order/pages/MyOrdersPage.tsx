@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 import type { Permission } from "../../auth/types/auth.types";
@@ -22,6 +23,7 @@ function getFallbackVariantLines(productName: string, variantName: string | null
 }
 
 export function MyOrdersPage({ permissions }: MyOrdersPageProps) {
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
@@ -85,7 +87,7 @@ export function MyOrdersPage({ permissions }: MyOrdersPageProps) {
       <p className="mt-1 text-sm text-[#64748b]">Consulta únicamente los pedidos asociados a tu cuenta.</p>
       <section className="mt-8 overflow-hidden rounded-2xl border border-[#d9dcf4] bg-white shadow-sm">
         <div className="flex flex-col justify-between gap-4 border-b border-[#eef0ff] p-5 sm:flex-row sm:items-center">
-          <div><h2 className="text-lg font-black text-[#0f172a]">Historial de compras</h2><p className="mt-1 text-sm text-[#64748b]">{filteredOrders.length} pedido(s) visible(s) de {pagination.totalItems}</p></div>
+          <div><h2 className="text-lg font-black text-[#0f172a]">Historial de compras</h2><p className="mt-1 text-sm text-[#64748b]">{filteredOrders.length} pedido(s) visible(s) de {pagination.totalItems}</p></div><button className="rounded-xl bg-[#2f2eaa] px-4 py-2.5 text-sm font-bold text-white" onClick={() => navigate("/my-orders/addresses")} type="button">Mis direcciones</button>
           <select className="rounded-xl border border-[#d9dcf4] bg-white px-4 py-2.5 text-sm text-[#475569] outline-none focus:border-[#2f2eaa]" onChange={(event) => { setStatus(event.target.value); setPage(1); }} value={status}>
             <option value="">Todos los estados</option>
             {statuses.map((item) => <option key={item} value={item}>{labels[item] ?? item}</option>)}
