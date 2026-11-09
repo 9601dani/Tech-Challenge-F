@@ -17,6 +17,7 @@ import {
   listCatalogAttributes,
   listCatalogProducts,
   listCatalogProductImages,
+  listCatalogPriceHistory,
   getProductVariants,
   reactivateCatalogProduct,
   updateCatalogProduct,
@@ -29,6 +30,7 @@ import {
   type CatalogComponent,
   type CatalogCategory,
   type CatalogProductAdminItem,
+  type CatalogPriceHistoryItem,
 } from "../services/catalogApi";
 
 interface ProductForm {
@@ -64,6 +66,13 @@ interface EditableComponent {
 interface EditableAttribute {
   attributeId: number;
   attributeValueId: number;
+}
+
+interface EditSnapshot {
+  form: Pick<ProductForm, "code" | "name" | "description" | "categoryId" | "showPos" | "isComposite" | "trackInventory">;
+  variants: EditableVariant[];
+  attributes: Record<number, EditableAttribute[]>;
+  components: Record<number, EditableComponent[]>;
 }
 
 const emptyForm: ProductForm = {
@@ -103,6 +112,8 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
   const [selectedImagePreviews, setSelectedImagePreviews] = useState<Array<{ file: File; url: string }>>([]);
   const [selectedImageVariants, setSelectedImageVariants] = useState<Record<string, string>>({});
   const [productImages, setProductImages] = useState<CatalogProductImage[]>([]);
+  const [priceHistory, setPriceHistory] = useState<CatalogPriceHistoryItem[]>([]);
+  const editSnapshotRef = useRef<EditSnapshot | null>(null);
 
   useEffect(() => {
     const previews = selectedImages.map((file) => ({ file, url: URL.createObjectURL(file) }));
@@ -164,13 +175,15 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
   async function startEdit(item: CatalogProductAdminItem, variants: CatalogProductAdminItem[] = [item]) {
     const productVariants = variants.length > 1 ? variants : products.filter((product) => product.productId === item.productId);
     setEditingId(item.productId);
-    setForm({
+    const initialForm = {
       code: item.code, name: item.name, description: item.description ?? "", categoryId: item.categoryId?.toString() ?? "",
       showPos: item.showPos, isComposite: item.isComposite, trackInventory: item.trackInventory,
       sku: "", price: "", initialQuantity: "0",
-    });
+    };
+    const initialVariants = productVariants.map((variant) => ({ id: variant.variantId, sku: variant.sku, name: variant.variantName ?? item.name, price: String(variant.price ?? ""), initialQuantity: String(variant.stockQuantity ?? 0) }));
+    setForm(initialForm);
     setExtraVariants([]);
-    setEditableVariants(productVariants.map((variant) => ({ id: variant.variantId, sku: variant.sku, name: variant.variantName ?? item.name, price: String(variant.price ?? ""), initialQuantity: String(variant.stockQuantity ?? 0) })));
+    setEditableVariants(initialVariants);
     setEditableComponents({});
     setComponentLabels({});
     setEditingVariantIds(productVariants.map((variant) => variant.variantId));
@@ -178,9 +191,12 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     setSelectedImages([]);
     setSelectedImageVariants({});
     setProductImages([]);
+    setPriceHistory([]);
+    editSnapshotRef.current = { form: initialForm, variants: initialVariants, attributes: {}, components: {} };
     try {
-      const [variantDetails, availableAttributes, images] = await Promise.all([getProductVariants(item.productId), listCatalogAttributes(), listCatalogProductImages(item.productId)]);
+      const [variantDetails, availableAttributes, images, prices] = await Promise.all([getProductVariants(item.productId), listCatalogAttributes(), listCatalogProductImages(item.productId), listCatalogPriceHistory(item.productId)]);
       setProductImages(images);
+      setPriceHistory(prices);
       setAttributeOptions(availableAttributes);
       const currentAttributes: Record<number, EditableAttribute[]> = {};
       variantDetails.forEach((variant) => {
@@ -193,6 +209,7 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
           .filter((attribute): attribute is EditableAttribute => attribute !== null && attribute.attributeId > 0 && attribute.attributeValueId > 0);
       });
       setEditableAttributes(currentAttributes);
+      if (editSnapshotRef.current) editSnapshotRef.current.attributes = currentAttributes;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudieron cargar los atributos");
     }
@@ -205,6 +222,7 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
           return result;
         }, {});
         setEditableComponents(Object.fromEntries(Object.entries(componentsByVariant).map(([parentVariantId, variantComponents]) => [parentVariantId, mergeComponents(variantComponents)])));
+        if (editSnapshotRef.current) editSnapshotRef.current.components = Object.fromEntries(Object.entries(componentsByVariant).map(([parentVariantId, variantComponents]) => [parentVariantId, mergeComponents(variantComponents)]));
       } catch (requestError) {
         setError(requestError instanceof Error ? requestError.message : "No se pudieron cargar los componentes");
       }
@@ -212,7 +230,7 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function resetForm() { setEditingId(null); setForm(emptyForm); setExtraVariants([]); setEditableVariants([]); setNewVariants([]); setEditableComponents({}); setComponentLabels({}); setEditableAttributes({}); setEditingVariantIds([]); setSelectedImages([]); setSelectedImageVariants({}); setProductImages([]); }
+  function resetForm() { editSnapshotRef.current = null; setEditingId(null); setForm(emptyForm); setExtraVariants([]); setEditableVariants([]); setNewVariants([]); setEditableComponents({}); setComponentLabels({}); setEditableAttributes({}); setEditingVariantIds([]); setSelectedImages([]); setSelectedImageVariants({}); setProductImages([]); setPriceHistory([]); }
 
   function removeSelectedImage(index: number) {
     const file = selectedImages[index];
@@ -397,7 +415,10 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
         isComposite: form.isComposite, trackInventory: form.trackInventory, showPos: form.showPos,
       };
       if (editingId) {
-        await updateCatalogProduct(editingId, common);
+        const snapshot = editSnapshotRef.current;
+        const productFields = (value: ProductForm | EditSnapshot["form"]) => ({ code: value.code.trim(), name: value.name.trim(), description: value.description.trim(), categoryId: value.categoryId, showPos: value.showPos, isComposite: value.isComposite, trackInventory: value.trackInventory });
+        const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+        if (!snapshot || !same(productFields(form), productFields(snapshot.form))) await updateCatalogProduct(editingId, common);
         if (selectedImages.length > 0) {
           const uploaded = await uploadCatalogImages(selectedImages);
           await Promise.all(uploaded.images.map((image, index) => {
@@ -410,15 +431,27 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
             setError("Cada variante debe tener SKU y un precio válido.");
             return;
           }
-          await Promise.all(editableVariants.map((variant) => updateCatalogVariant(variant.id, { sku: variant.sku.trim(), name: variant.name.trim() || undefined, price: Number(variant.price) })));
+          const changedVariants = editableVariants.filter((variant) => {
+            const original = snapshot?.variants.find((item) => item.id === variant.id);
+            return !original || !same({ sku: variant.sku.trim(), name: variant.name.trim(), price: Number(variant.price) }, { sku: original.sku.trim(), name: original.name.trim(), price: Number(original.price) });
+          });
+          await Promise.all(changedVariants.map((variant) => updateCatalogVariant(variant.id, { sku: variant.sku.trim(), name: variant.name.trim() || undefined, price: Number(variant.price) })));
         }
         if (form.isComposite) {
           const parentVariants = editableVariants.map((variant) => variant.id);
-          await Promise.all(parentVariants.map((variantId) => replaceCatalogComponents(variantId, mergeComponents(editableComponents[variantId] ?? []).filter((component) => component.componentVariantId > 0 && Number(component.quantity) > 0).map((component) => ({ componentVariantId: component.componentVariantId, quantity: Number(component.quantity) })) )));
+          const changedComponents = parentVariants.filter((variantId) => {
+            const current = mergeComponents(editableComponents[variantId] ?? []).filter((component) => component.componentVariantId > 0 && Number(component.quantity) > 0).map((component) => ({ componentVariantId: component.componentVariantId, quantity: Number(component.quantity) })).sort((a, b) => a.componentVariantId - b.componentVariantId);
+            const original = mergeComponents(snapshot?.components[variantId] ?? []).filter((component) => component.componentVariantId > 0 && Number(component.quantity) > 0).map((component) => ({ componentVariantId: component.componentVariantId, quantity: Number(component.quantity) })).sort((a, b) => a.componentVariantId - b.componentVariantId);
+            return !same(current, original);
+          });
+          await Promise.all(changedComponents.map((variantId) => replaceCatalogComponents(variantId, mergeComponents(editableComponents[variantId] ?? []).filter((component) => component.componentVariantId > 0 && Number(component.quantity) > 0).map((component) => ({ componentVariantId: component.componentVariantId, quantity: Number(component.quantity) })) )));
         }
         for (const variantId of editingVariantIds) {
+          const current = (editableAttributes[variantId] ?? []).filter((attribute) => attribute.attributeId > 0 && attribute.attributeValueId > 0).sort((a, b) => a.attributeId - b.attributeId);
+          const original = (snapshot?.attributes[variantId] ?? []).filter((attribute) => attribute.attributeId > 0 && attribute.attributeValueId > 0).sort((a, b) => a.attributeId - b.attributeId);
+          if (same(current, original)) continue;
           try {
-            await replaceCatalogVariantAttributes(variantId, (editableAttributes[variantId] ?? []).filter((attribute) => attribute.attributeId > 0 && attribute.attributeValueId > 0));
+            await replaceCatalogVariantAttributes(variantId, current);
           } catch (requestError) {
             const message = requestError instanceof Error ? requestError.message : "Uno de los atributos o valores no pertenece a la empresa.";
             throw new Error(`No se pudieron guardar los atributos de la variante #${variantId}: ${message}`);
@@ -559,6 +592,7 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
             {editingId && <div className="rounded-xl bg-[#f7f7ff] p-4 md:col-span-2 xl:col-span-4"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold">Variantes del producto</p><button className="text-sm font-bold text-[#2f2eaa]" onClick={() => setNewVariants((current) => [...current, { sku: "", name: "", price: "", initialQuantity: "0" }])} type="button">+ Nueva variante</button></div>{editableVariants.length > 0 && <div className="space-y-3">{editableVariants.map((variant, index) => <div className="grid gap-3 sm:grid-cols-3" key={variant.id}><label className="text-sm font-semibold">SKU<input className="field" onChange={(event) => updateEditableVariant(index, "sku", event.target.value)} value={variant.sku} /></label><label className="text-sm font-semibold">Nombre<input className="field" onChange={(event) => updateEditableVariant(index, "name", event.target.value)} value={variant.name} /></label><label className="text-sm font-semibold">Precio<input className="field" min="0" onChange={(event) => updateEditableVariant(index, "price", event.target.value)} step="0.01" type="number" value={variant.price} /></label></div>)}</div>}{hasVariantSpecificImages && <div className="mt-4 space-y-3"><p className="text-sm font-bold">Imágenes por variante</p>{imageVariantOptions.map((variant) => { const current = editableVariants.find((item) => item.sku === variant.sku); return <div key={variant.sku}>{renderVariantImages({ ...variant, id: current?.id })}</div>; })}</div>}{newVariants.map((variant, index) => <div className="mt-3 grid gap-3 rounded-xl border border-dashed border-[#c7c9df] p-3 sm:grid-cols-4" key={`new-${index}`}><input className="field mt-0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, sku: event.target.value } : item))} placeholder="SKU" value={variant.sku} /><input className="field mt-0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder="Nombre" value={variant.name} /><input className="field mt-0" min="0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item))} placeholder="Precio" step="0.01" type="number" value={variant.price} /><input className="field mt-0" min="0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, initialQuantity: event.target.value } : item))} placeholder="Existencia inicial" step="0.001" type="number" value={variant.initialQuantity} /><button className="rounded-lg bg-[#2f2eaa] px-3 py-2 text-sm font-bold text-white" disabled={saving} onClick={() => void saveNewVariant(index)} type="button">Guardar variante</button></div>)}</div>}
             {editingId && editingVariantIds.length > 0 && <div className="rounded-xl border border-[#d9dcf4] bg-white p-4 md:col-span-2 xl:col-span-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-bold">Atributos de las variantes</p><p className="text-xs text-[#64748b]">Selecciona valores como color, talla o cualquier otro atributo configurado.</p></div><button className="rounded-lg bg-[#eef0ff] px-3 py-2 text-xs font-bold text-[#2f2eaa]" onClick={() => void createAttribute()} type="button">+ Nuevo atributo</button></div><div className="grid gap-4 lg:grid-cols-2">{editingVariantIds.map((variantId) => <div className="rounded-xl bg-[#f7f7ff] p-3" key={variantId}><p className="mb-3 text-sm font-bold text-[#2f2eaa]">{products.find((product) => product.variantId === variantId)?.variantName || products.find((product) => product.variantId === variantId)?.sku || `Variante ${variantId}`}</p>{(editableAttributes[variantId] ?? []).map((attribute, index) => { const definition = attributeOptions.find((option) => option.attributeId === attribute.attributeId); return <div className="mb-2 flex flex-col gap-2 sm:flex-row" key={`${variantId}-${index}`}><select className="field mt-0 flex-1" onChange={(event) => updateAttribute(variantId, index, "attributeId", event.target.value)} value={attribute.attributeId}><option value="">Atributo</option>{attributeOptions.filter((option) => option.attributeId === attribute.attributeId || !(editableAttributes[variantId] ?? []).some((current) => current.attributeId === option.attributeId)).map((option) => <option key={option.attributeId} value={option.attributeId}>{option.name}</option>)}</select><select className="field mt-0 flex-1" onChange={(event) => updateAttribute(variantId, index, "attributeValueId", event.target.value)} value={attribute.attributeValueId}><option value="">Valor</option>{(definition?.values ?? []).map((value) => <option key={value.attributeValueId} value={value.attributeValueId}>{value.value}</option>)}</select>{definition && <button className="rounded-lg bg-[#eef0ff] px-3 py-2 text-xs font-bold text-[#2f2eaa]" onClick={() => void createAttributeValue(definition.attributeId)} type="button">+ Valor</button>}<button className="rounded-lg bg-red-50 px-3 py-2 font-bold text-red-700" onClick={() => removeAttribute(variantId, index)} type="button">Quitar</button></div>; })}<button className="text-sm font-bold text-[#2f2eaa] disabled:text-[#94a3b8]" disabled={attributeOptions.length === 0} onClick={() => void addAttribute(variantId)} type="button">+ Agregar atributo</button></div>)}</div></div>}
             {form.isComposite && <div className="rounded-xl border border-[#d9dcf4] bg-[#fafaff] p-4 md:col-span-2 xl:col-span-4"><div className="mb-3"><p className="text-sm font-bold">Componentes / receta (BOM)</p><p className="text-xs text-[#64748b]">Selecciona los componentes y la cantidad necesaria para fabricar una unidad.</p></div><div className="space-y-4">{componentParentVariants.map((parent) => <div className="rounded-xl bg-white p-3" key={parent.id}><p className="mb-2 text-sm font-bold text-[#2f2eaa]">Variante: {parent.label}</p>{(editableComponents[parent.id] ?? []).map((component, index) => <div className="mb-2 flex flex-col gap-2 sm:flex-row" key={`${parent.id}-${index}`}><select className="field mt-0 flex-1" onChange={(event) => updateComponent(parent.id, index, "componentVariantId", event.target.value)} value={component.componentVariantId || ""}><option value="">Selecciona un componente</option>{componentOptions.map((option) => <option key={`${option.productId}-${option.variantId}`} value={option.variantId}>{option.name}</option>)}</select><input className="field mt-0 w-full sm:max-w-32" min="0.001" onChange={(event) => updateComponent(parent.id, index, "quantity", event.target.value)} step="0.001" type="number" value={component.quantity} /><button className="rounded-lg bg-red-50 px-3 py-2 font-bold text-red-700" onClick={() => removeComponent(parent.id, index)} type="button">Quitar</button></div>)}<button className="text-sm font-bold text-[#2f2eaa]" onClick={() => addComponent(parent.id)} type="button">+ Agregar componente</button></div>)}</div></div>}
+            {editingId && <div className="rounded-xl border border-[#d9dcf4] bg-white p-4 md:col-span-2 xl:col-span-4"><div className="mb-3"><p className="text-sm font-bold">Historial de precios</p><p className="text-xs text-[#64748b]">Consulta las versiones de precio registradas para las variantes de este producto.</p></div>{priceHistory.length === 0 ? <p className="text-sm text-[#64748b]">No hay historial de precios disponible.</p> : <div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="border-b border-[#eef0ff] text-xs uppercase tracking-wider text-[#64748b]"><tr><th className="px-3 py-3">Variante</th><th className="px-3 py-3">Precio</th><th className="px-3 py-3">Inicio</th><th className="px-3 py-3">Fin</th><th className="px-3 py-3">Estado</th></tr></thead><tbody>{priceHistory.map((price) => <tr className="border-b border-[#f0f1fa]" key={price.idPrice}><td className="px-3 py-3"><p className="font-bold">{price.variantName ?? price.sku}</p><p className="text-xs text-[#64748b]">{price.sku}</p></td><td className="px-3 py-3 font-black text-[#2f2eaa]">Q {price.price.toFixed(2)}</td><td className="px-3 py-3 text-xs text-[#64748b]">{new Date(price.startDate).toLocaleString("es-GT")}</td><td className="px-3 py-3 text-xs text-[#64748b]">{price.endDate ? new Date(price.endDate).toLocaleString("es-GT") : "—"}</td><td className="px-3 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${price.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{price.active ? "Vigente" : "Histórico"}</span></td></tr>)}</tbody></table></div>}</div>}
             {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2 xl:col-span-4">{error}</p>}
             <div className="flex gap-3 md:col-span-2 xl:col-span-4"><button className="rounded-xl bg-[#2f2eaa] px-5 py-3 font-bold text-white disabled:opacity-60" disabled={saving} type="submit">{saving ? "Guardando..." : editingId ? "Guardar cambios" : "Crear producto"}</button>{editingId && <button className="rounded-xl border border-[#d9dcf4] px-5 py-3 font-bold" onClick={resetForm} type="button">Cancelar</button>}</div>
           </form>

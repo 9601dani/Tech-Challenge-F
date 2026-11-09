@@ -197,6 +197,22 @@ export function listCatalogProductImages(productId: number): Promise<CatalogProd
   return httpRequest<CatalogProductImage[]>(`/catalog/products/${productId}/images?companyId=${encodeURIComponent(import.meta.env.VITE_COMPANY_ID ?? "1")}`);
 }
 
+export interface CatalogPriceHistoryItem {
+  idPrice: number;
+  variantId: number;
+  sku: string;
+  variantName: string | null;
+  price: number;
+  taxIncluded: boolean;
+  startDate: string;
+  endDate: string | null;
+  active: boolean;
+}
+
+export function listCatalogPriceHistory(productId: number): Promise<CatalogPriceHistoryItem[]> {
+  return httpRequest<CatalogPriceHistoryItem[]>(`/catalog/products/${productId}/prices`);
+}
+
 export function attachCatalogProductImage(productId: number, input: { imageKey: string; altText?: string; sortOrder?: number; isPrimary?: boolean; variantSku?: string }): Promise<{ id: number }> {
   return httpRequest<{ id: number }>(`/catalog/products/${productId}/images`, { method: "POST", body: JSON.stringify(input) });
 }
