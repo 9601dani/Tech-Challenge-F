@@ -14,6 +14,8 @@ const moduleDefinitions = [
   { feature: "INVENTORY", label: "Inventario", icon: "◈", path: "/inventory" },
   { feature: "CHECKOUT", label: "Checkout", icon: "✓", path: "/checkout" },
   { feature: "REPORTS", label: "Reportes", icon: "▥", path: "/reports" },
+  { feature: "USERS", label: "Usuarios", icon: "♙", path: "/users" },
+  { feature: "COUPONS", label: "Cupones", icon: "%", path: "/coupons" },
 ];
 
 export function Sidebar({ permissions }: SidebarProps) {

@@ -59,6 +59,7 @@ export interface UpdateCatalogProductInput {
 interface ProductListResponse {
   data: Array<{
     productId: number;
+    categoryId: number | null;
     categoryName: string | null;
     name: string;
     isComposite: boolean;
@@ -79,6 +80,23 @@ interface ProductListResponse {
   };
 }
 
+export interface PublicCatalogFilters {
+  search?: string;
+  categoryId?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  available?: boolean;
+  sortBy?: "name" | "price" | "createdAt";
+  sortDirection?: "asc" | "desc";
+  page?: number;
+  pageSize?: number;
+}
+
+export interface PublicCatalogResult {
+  products: ProductCardData[];
+  pagination: ProductListResponse["pagination"];
+}
+
 const colorsByCategory: Record<string, string> = {
   Ropa: "#27272a",
   Hamburguesas: "#d97706",
@@ -86,7 +104,7 @@ const colorsByCategory: Record<string, string> = {
   Alimentos: "#fbbf24",
 };
 
-const productListRequests = new Map<string, Promise<ProductCardData[]>>();
+const productListRequests = new Map<string, Promise<PublicCatalogResult>>();
 const variantSkuRequests = new Map<string, Promise<ProductVariantOption[]>>();
 
 export async function listCatalogProducts(search = ""): Promise<CatalogProductAdminItem[]> {
@@ -103,6 +121,11 @@ export async function listCatalogProducts(search = ""): Promise<CatalogProductAd
 export async function listCatalogCategories(): Promise<CatalogCategory[]> {
   const response = await httpRequest<CatalogCategory[]>(`/catalog/categories?companyId=${encodeURIComponent(import.meta.env.VITE_COMPANY_ID ?? "1")}`);
   return Array.isArray(response) ? response : [];
+}
+
+export async function listPublicCategories(): Promise<CatalogCategory[]> {
+  const response = await httpRequest<CatalogCategory[]>(`/catalog/categories/public?companyId=${encodeURIComponent(import.meta.env.VITE_COMPANY_ID ?? "1")}`);
+  return Array.isArray(response) ? response.filter((category) => category.active) : [];
 }
 
 export function createCatalogCategory(input: { name: string; description?: string; parentCategoryId?: number }): Promise<CatalogCategory> {
@@ -222,20 +245,32 @@ export function reactivateCatalogProduct(productId: number): Promise<void> {
   return httpRequest<void>(`/catalog/products/${productId}/reactivate`, { method: "POST" });
 }
 
-export async function listPublicProducts(search = ""): Promise<ProductCardData[]> {
-  const requestKey = search.trim().toLocaleLowerCase();
+export async function listPublicProducts(filters: PublicCatalogFilters = {}): Promise<PublicCatalogResult> {
+  const normalizedFilters = {
+    ...filters,
+    search: filters.search?.trim() || undefined,
+    page: filters.page ?? 1,
+    pageSize: filters.pageSize ?? 20,
+  };
+  const requestKey = JSON.stringify(normalizedFilters);
   const existingRequest = productListRequests.get(requestKey);
   if (existingRequest) return existingRequest;
 
   const query = new URLSearchParams({
     companyId: import.meta.env.VITE_COMPANY_ID ?? "1",
-    page: "1",
-    pageSize: "50",
+    page: String(normalizedFilters.page),
+    pageSize: String(normalizedFilters.pageSize),
   });
 
-  if (search.trim()) query.set("search", search.trim());
+  if (normalizedFilters.search) query.set("search", normalizedFilters.search);
+  if (normalizedFilters.categoryId) query.set("categoryId", String(normalizedFilters.categoryId));
+  if (normalizedFilters.minPrice !== undefined) query.set("minPrice", String(normalizedFilters.minPrice));
+  if (normalizedFilters.maxPrice !== undefined) query.set("maxPrice", String(normalizedFilters.maxPrice));
+  if (normalizedFilters.available !== undefined) query.set("available", String(normalizedFilters.available));
+  if (normalizedFilters.sortBy) query.set("sortBy", normalizedFilters.sortBy);
+  if (normalizedFilters.sortDirection) query.set("sortDirection", normalizedFilters.sortDirection);
 
-  const request = httpRequest<ProductListResponse>(`/catalog/products?${query.toString()}`).then(async (response): Promise<ProductCardData[]> => {
+  const request = httpRequest<ProductListResponse>(`/catalog/products?${query.toString()}`).then(async (response): Promise<PublicCatalogResult> => {
 
   const visibleProducts = response.data
     .filter((product) => product.showPos)
@@ -247,13 +282,13 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
       availableQuantity: Number(product.availableQuantity),
     }));
 
-  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const normalizedSearch = (normalizedFilters.search ?? "").toLocaleLowerCase();
   const exactSkuMatches = normalizedSearch
     ? visibleProducts.filter((product) => product.sku.trim().toLocaleLowerCase() === normalizedSearch)
     : [];
 
   if (exactSkuMatches.length > 0) {
-    return Promise.all(exactSkuMatches.map(async (product) => {
+    const products = await Promise.all(exactSkuMatches.map(async (product) => {
       let availableQuantity = product.availableQuantity;
 
       if (product.isComposite) {
@@ -291,6 +326,7 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
         color: colorsByCategory[product.categoryName ?? ""] ?? "#6366f1",
       } satisfies ProductCardData;
     }));
+    return { products, pagination: response.pagination };
   }
 
   const grouped = new Map<number, ProductCardData>();
@@ -329,7 +365,7 @@ export async function listPublicProducts(search = ""): Promise<ProductCardData[]
     });
   }
 
-    return [...grouped.values()];
+    return { products: [...grouped.values()], pagination: response.pagination };
   });
 
   productListRequests.set(requestKey, request);

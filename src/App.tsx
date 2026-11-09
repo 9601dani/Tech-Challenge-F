@@ -13,6 +13,9 @@ import { ProtectedRoute } from "./shared/guards/ProtectedRoute";
 import { PermissionRoute } from "./shared/guards/PermissionRoute";
 import { ProductManagementPage } from "./modules/catalog/pages/ProductManagementPage";
 import { CategoryManagementPage } from "./modules/catalog/pages/CategoryManagementPage";
+import { UserManagementPage } from "./modules/user/pages/UserManagementPage";
+import { RoleManagementPage } from "./modules/user/pages/RoleManagementPage";
+import { CouponManagementPage } from "./modules/coupon/pages/CouponManagementPage";
 import type { AuthResponse } from "./modules/auth/types/auth.types";
 import type { CartItem } from "./modules/catalog/types/catalog.types";
 import type { ReactNode } from "react";
@@ -94,6 +97,9 @@ function ApplicationRoutes() {
         <Route path="/checkout" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
         <Route path="/catalog/products/manage" element={<PermissionRoute permissions={session?.permissions ?? []} feature="CATALOG_PRODUCTS" action="canEdit"><WorkspaceLayout session={session} onLogout={handleLogout}><ProductManagementPage canEdit={Boolean(session?.permissions.some((permission) => permission.feature === "CATALOG_PRODUCTS" && permission.enabled && permission.canEdit))} canDelete={Boolean(session?.permissions.some((permission) => permission.feature === "CATALOG_PRODUCTS" && permission.enabled && permission.canDelete))} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/catalog/categories/manage" element={<PermissionRoute permissions={session?.permissions ?? []} feature="CATALOG_PRODUCTS" action="canEdit"><WorkspaceLayout session={session} onLogout={handleLogout}><CategoryManagementPage /></WorkspaceLayout></PermissionRoute>} />
+        <Route path="/users" element={<PermissionRoute permissions={session?.permissions ?? []} feature="USERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><UserManagementPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
+        <Route path="/users/roles" element={<PermissionRoute permissions={session?.permissions ?? []} feature="USERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><RoleManagementPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
+        <Route path="/coupons" element={<PermissionRoute permissions={session?.permissions ?? []} feature="COUPONS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><CouponManagementPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/orders" element={<ProtectedRoute><WorkspaceLayout session={session} onLogout={handleLogout}><OrdersPage permissions={session?.permissions ?? []} /></WorkspaceLayout></ProtectedRoute>} />
         <Route path="/my-orders" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyOrdersPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/my-orders/addresses" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyAddressesPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />

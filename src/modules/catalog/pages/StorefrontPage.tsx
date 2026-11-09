@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ProductCard } from "../components/ProductCard";
-import { getManufacturedAvailability, listPublicProducts } from "../services/catalogApi";
+import { getManufacturedAvailability, listPublicCategories, listPublicProducts } from "../services/catalogApi";
+import type { CatalogCategory, PublicCatalogFilters } from "../services/catalogApi";
 import type { CartItem, ProductCardData, ProductVariantAttribute } from "../types/catalog.types";
 import { getProductVariantBySku } from "../services/catalogApi";
 import { addCartItem, addGuestCartItem, clearCartItems, clearGuestCartBackend, getCart, getGuestCart, removeCartItem, removeGuestCartItem, updateCartItem, updateGuestCartItem } from "../../cart/services/cartApi";
@@ -56,6 +57,15 @@ const getCartVariantLines = (item: CartItem): string[] => {
 export function StorefrontPage({ onCartChange, isAuthenticated, permissions = [] }: StorefrontPageProps) {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
+  const [categories, setCategories] = useState<CatalogCategory[]>([]);
+  const [categoryId, setCategoryId] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [availability, setAvailability] = useState<"" | "true" | "false">("");
+  const [sortBy, setSortBy] = useState<PublicCatalogFilters["sortBy"]>("name");
+  const [sortDirection, setSortDirection] = useState<PublicCatalogFilters["sortDirection"]>("asc");
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({ page: 1, pageSize: 12, totalItems: 0, totalPages: 0 });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [products, setProducts] = useState<ProductCardData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +120,10 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
   }
 
   useEffect(() => {
+    listPublicCategories().then(setCategories).catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
     if (!isAuthenticated) {
       const loadGuestCart = readGuestCartToken() ? getGuestCart() : Promise.resolve(readGuestCart());
       loadGuestCart
@@ -147,9 +161,24 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
     setLoading(true);
     setError("");
 
-    listPublicProducts(search)
-      .then((nextProducts) => {
-        if (active) setProducts(nextProducts);
+    const filters: PublicCatalogFilters = {
+      search,
+      categoryId: categoryId ? Number(categoryId) : undefined,
+      minPrice: minPrice ? Number(minPrice) : undefined,
+      maxPrice: maxPrice ? Number(maxPrice) : undefined,
+      available: availability === "" ? undefined : availability === "true",
+      sortBy,
+      sortDirection,
+      page,
+      pageSize: 12,
+    };
+
+    listPublicProducts(filters)
+      .then((result) => {
+        if (active) {
+          setProducts(result.products);
+          setPagination(result.pagination);
+        }
       })
       .catch((requestError) => {
         if (active) setError(requestError instanceof Error ? requestError.message : "No se pudieron cargar los productos");
@@ -161,7 +190,23 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
     return () => {
       active = false;
     };
-  }, [search]);
+  }, [search, categoryId, minPrice, maxPrice, availability, sortBy, sortDirection, page]);
+
+  function resetToFirstPage<T extends string>(setter: (value: T) => void, value: T) {
+    setter(value);
+    setPage(1);
+  }
+
+  function clearFilters() {
+    setSearch("");
+    setCategoryId("");
+    setMinPrice("");
+    setMaxPrice("");
+    setAvailability("");
+    setSortBy("name");
+    setSortDirection("asc");
+    setPage(1);
+  }
 
   async function addToCart(product: ProductCardData) {
     if (!isAuthenticated) {
@@ -271,8 +316,18 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
             {canEditProducts && <button className="rounded-xl bg-[#2f2eaa] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#25248e]" onClick={() => navigate("/catalog/products/manage")} type="button">Editar productos</button>}
             <label className="flex w-full max-w-sm items-center gap-3 rounded-xl border border-[#d9dcf4] bg-white px-4 py-3 text-[#64748b] shadow-sm">
               <span>⌕</span>
-              <input className="w-full bg-transparent text-sm text-[#0f172a] outline-none" onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nombre o SKU" value={search} />
+              <input className="w-full bg-transparent text-sm text-[#0f172a] outline-none" onChange={(event) => resetToFirstPage(setSearch, event.target.value)} placeholder="Buscar por nombre o SKU" value={search} />
             </label>
+          </div>
+
+          <div className="mt-6 grid gap-3 rounded-2xl border border-[#d9dcf4] bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <label className="text-xs font-bold uppercase tracking-wide text-[#64748b]">Categoría<select className="field mt-1 w-full" onChange={(event) => resetToFirstPage(setCategoryId, event.target.value)} value={categoryId}><option value="">Todas</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+            <label className="text-xs font-bold uppercase tracking-wide text-[#64748b]">Precio mínimo<input className="field mt-1 w-full" min="0" onChange={(event) => resetToFirstPage(setMinPrice, event.target.value)} placeholder="Q 0.00" type="number" value={minPrice} /></label>
+            <label className="text-xs font-bold uppercase tracking-wide text-[#64748b]">Precio máximo<input className="field mt-1 w-full" min="0" onChange={(event) => resetToFirstPage(setMaxPrice, event.target.value)} placeholder="Q 0.00" type="number" value={maxPrice} /></label>
+            <label className="text-xs font-bold uppercase tracking-wide text-[#64748b]">Disponibilidad<select className="field mt-1 w-full" onChange={(event) => resetToFirstPage(setAvailability, event.target.value as "" | "true" | "false")} value={availability}><option value="">Todas</option><option value="true">Disponibles</option><option value="false">Agotados</option></select></label>
+            <label className="text-xs font-bold uppercase tracking-wide text-[#64748b]">Ordenar por<select className="field mt-1 w-full" onChange={(event) => { setSortBy(event.target.value as PublicCatalogFilters["sortBy"]); setPage(1); }} value={sortBy}><option value="name">Nombre</option><option value="price">Precio</option><option value="createdAt">Más recientes</option></select></label>
+            <label className="text-xs font-bold uppercase tracking-wide text-[#64748b]">Dirección<select className="field mt-1 w-full" onChange={(event) => { setSortDirection(event.target.value as PublicCatalogFilters["sortDirection"]); setPage(1); }} value={sortDirection}><option value="asc">Ascendente</option><option value="desc">Descendente</option></select></label>
+            <button className="self-end rounded-xl border border-[#d9dcf4] px-4 py-3 text-sm font-bold text-[#2f2eaa] transition hover:bg-[#eef0ff]" onClick={clearFilters} type="button">Borrar filtros</button>
           </div>
 
           {loading && <p className="py-20 text-center text-[#64748b]">Cargando productos...</p>}
@@ -281,6 +336,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
             {products.map((product) => <ProductCard directVariantMatch={Boolean(search.trim() && product.sku.trim().toLocaleLowerCase() === search.trim().toLocaleLowerCase())} key={product.id} onAdd={addToCart} product={product} />)}
           </div>}
           {!loading && !error && products.length === 0 && <p className="py-20 text-center text-[#64748b]">No encontramos productos con esos criterios.</p>}
+          {!loading && !error && pagination.totalPages > 1 && <div className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[#d9dcf4] bg-white px-4 py-3 shadow-sm"><p className="text-sm text-[#64748b]">Mostrando página {pagination.page} de {pagination.totalPages} · {pagination.totalItems} resultados</p><div className="flex gap-2"><button className="rounded-lg border border-[#d9dcf4] px-4 py-2 text-sm font-bold text-[#2f2eaa] disabled:cursor-not-allowed disabled:opacity-40" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} type="button">Anterior</button><button className="rounded-lg bg-[#2f2eaa] px-4 py-2 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-40" disabled={page >= pagination.totalPages} onClick={() => setPage((current) => Math.min(pagination.totalPages, current + 1))} type="button">Siguiente</button></div></div>}
         </div>
 
         <aside className="flex h-fit flex-col rounded-2xl border border-[#d9dcf4] bg-white p-5 shadow-sm lg:sticky lg:top-24 lg:h-[calc(100vh-7rem)] lg:min-h-[560px]">
