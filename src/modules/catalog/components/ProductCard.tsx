@@ -1,7 +1,8 @@
 import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
-import { getManufacturedAvailability, getProductVariants } from "../services/catalogApi";
+import { getManufacturedAvailability, getProductVariants, listPublicProductImages } from "../services/catalogApi";
 import type { ProductCardData, ProductVariantOption } from "../types/catalog.types";
+import { resolveImageUrl } from "../../../shared/utils/imageUrl";
 
 interface ProductCardProps {
   product: ProductCardData;
@@ -142,6 +143,23 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
       }
     }
 
+    if (product.productId) {
+      try {
+        const images = await listPublicProductImages(product.productId);
+        variantOptions = variantOptions.map((variant) => {
+          const variantImages = images
+            .filter((image) => image.variantId === Number(variant.id))
+            .sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder));
+          const generalImages = images
+            .filter((image) => image.variantId === null)
+            .sort((left, right) => Number(left.sortOrder) - Number(right.sortOrder));
+          return { ...variant, images: (variantImages.length > 0 ? variantImages : generalImages).map((image) => ({ imageKey: image.imageKey, altText: image.altText, sortOrder: image.sortOrder, isPrimary: image.isPrimary })) };
+        });
+      } catch {
+        // Las imágenes son complementarias; el modal sigue funcionando si no están disponibles.
+      }
+    }
+
     if (product.isComposite && product.productId) {
       try {
         const availability = await getManufacturedAvailability(product.productId);
@@ -173,6 +191,8 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
     const attributeNames = [...new Set(variantOptions.flatMap((variant) => (variant.attributes ?? []).map((attribute) => attribute.attributeName)).filter(Boolean))];
     const hasAttributes = attributeNames.length > 0;
 
+    const galleryHtml = `<div id="shopcart-variant-gallery" class="shopcart-variant-gallery"></div>`;
+
     const combinationHtml = hasAttributes
       ? `
         <p class="shopcart-modal-subtitle">Selecciona las características del producto</p>
@@ -200,14 +220,38 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
 
     const result = await Swal.fire<number>({
       title: escapeHtml(product.name),
-      html: combinationHtml,
+      html: `${galleryHtml}${combinationHtml}`,
       showCancelButton: true,
       confirmButtonText: "Agregar al carrito",
       cancelButtonText: "Cancelar",
       confirmButtonColor: "#2f2eaa",
       focusConfirm: false,
       didOpen: () => {
-        if (!hasAttributes) return;
+        const gallery = document.querySelector<HTMLDivElement>("#shopcart-variant-gallery");
+        const updateGallery = (variantId?: number) => {
+          if (!gallery) return;
+          const selectedVariant = variantOptions.find((variant) => Number(variant.id) === Number(variantId));
+          const images = selectedVariant?.images ?? [];
+          if (!images.length) {
+            gallery.innerHTML = "";
+            return;
+          }
+          let imageIndex = 0;
+          const render = () => {
+            const image = images[imageIndex];
+            if (!image) return;
+            gallery.innerHTML = `<div class="shopcart-gallery-frame"><button type="button" class="shopcart-gallery-arrow" id="shopcart-gallery-prev" ${images.length < 2 ? "disabled" : ""}>‹</button><img class="shopcart-gallery-image" src="${escapeHtml(resolveImageUrl(image.imageKey) ?? "")}" alt="${escapeHtml(image.altText ?? product.name)}"><button type="button" class="shopcart-gallery-arrow" id="shopcart-gallery-next" ${images.length < 2 ? "disabled" : ""}>›</button></div><small class="shopcart-gallery-counter">${imageIndex + 1} / ${images.length}</small>`;
+            gallery.querySelector<HTMLButtonElement>("#shopcart-gallery-prev")?.addEventListener("click", () => { imageIndex = (imageIndex - 1 + images.length) % images.length; render(); });
+            gallery.querySelector<HTMLButtonElement>("#shopcart-gallery-next")?.addEventListener("click", () => { imageIndex = (imageIndex + 1) % images.length; render(); });
+          };
+          render();
+        };
+
+        if (!hasAttributes) {
+          document.querySelectorAll<HTMLInputElement>("input[name='shopcart-variant']").forEach((input) => input.addEventListener("change", () => updateGallery(Number(input.value))));
+          updateGallery(variantOptions.find((variant) => variant.availableQuantity > 0)?.id);
+          return;
+        }
         const selectedInfo = document.querySelector<HTMLDivElement>("#shopcart-selected-variant");
         const selectionGrid = document.querySelector<HTMLDivElement>(".shopcart-selection-grid");
         if (!selectedInfo || !selectionGrid) return;
@@ -264,6 +308,7 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
           selectedInfo.innerHTML = selected
             ? `SKU: ${escapeHtml(selected.sku)} · Disponible: ${selected.availableQuantity} · Q ${selected.price.toFixed(2)}`
             : "Selecciona una combinación disponible";
+          updateGallery(selected?.id);
         };
 
         refreshOptions();
@@ -314,7 +359,16 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
     <article className="group overflow-hidden rounded-2xl border border-[#e4e6f5] bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:shadow-lg">
       <button className="relative flex h-48 w-full items-center justify-center bg-[#f0f1ff]" onClick={handleProductAction} type="button">
         {product.badge && <span className="absolute left-4 top-4 rounded-full bg-[#2f2eaa] px-3 py-1 text-xs font-semibold text-white">{product.badge}</span>}
-        <div className="h-28 w-28 rounded-full shadow-inner transition group-hover:scale-105" style={{ backgroundColor: product.color }} />
+        {resolveImageUrl(product.imageUrl ?? product.imageKey) ? (
+          <img
+            alt={product.name}
+            className="h-full w-full object-cover transition group-hover:scale-105"
+            onError={(event) => { event.currentTarget.style.display = "none"; }}
+            src={resolveImageUrl(product.imageUrl ?? product.imageKey)}
+          />
+        ) : (
+          <div className="h-28 w-28 rounded-full shadow-inner transition group-hover:scale-105" style={{ backgroundColor: product.color }} />
+        )}
       </button>
       <div className="p-5">
         <p className="text-xs font-semibold uppercase tracking-wider text-[#64748b]">{product.category}</p>

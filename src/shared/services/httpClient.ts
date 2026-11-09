@@ -82,7 +82,7 @@ export async function httpRequest<T>(
   const isAuthRequest = path === "/auth/login" || path === "/auth/register" || path === "/auth/refresh";
   const session = getSession();
   const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
+  if (!(options.body instanceof FormData)) headers.set("Content-Type", "application/json");
 
   if (!isAuthRequest && session?.accessToken) {
     headers.set("Authorization", `Bearer ${session.accessToken}`);

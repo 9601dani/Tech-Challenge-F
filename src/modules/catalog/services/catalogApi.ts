@@ -37,6 +37,7 @@ export interface CreateCatalogProductInput {
   isComposite: boolean;
   trackInventory: boolean;
   showPos: boolean;
+  images?: Array<{ imageKey: string; altText?: string; sortOrder?: number; isPrimary?: boolean; variantSku?: string }>;
   variants?: Array<{
     sku: string;
     name: string;
@@ -44,6 +45,30 @@ export interface CreateCatalogProductInput {
     initialQuantity: number;
     components?: Array<{ componentVariantId: number; quantity: number }>;
   }>;
+}
+
+export interface CatalogProductImage {
+  id: number;
+  productId: number;
+  variantId: number | null;
+  imageKey: string;
+  altText: string | null;
+  sortOrder: number;
+  isPrimary: boolean;
+  active: boolean;
+}
+
+export async function listPublicProductImages(productId: number): Promise<CatalogProductImage[]> {
+  const response = await httpRequest<CatalogProductImage[]>(`/catalog/products/${productId}/images?companyId=${encodeURIComponent(import.meta.env.VITE_COMPANY_ID ?? "1")}`);
+  return response.map((image) => ({
+    ...image,
+    id: Number(image.id),
+    productId: Number(image.productId),
+    variantId: image.variantId === null || image.variantId === undefined ? null : Number(image.variantId),
+    sortOrder: Number(image.sortOrder),
+    isPrimary: Boolean(image.isPrimary),
+    active: Boolean(image.active),
+  }));
 }
 
 export interface UpdateCatalogProductInput {
@@ -69,6 +94,8 @@ interface ProductListResponse {
     variantId: number;
     variantName: string | null;
     showPos: boolean;
+    imageUrl?: string | null;
+    imageKey?: string | null;
     reservedQuantity: number;
     availableQuantity: number;
   }>;
@@ -160,6 +187,24 @@ export function updateCatalogProduct(productId: number, input: UpdateCatalogProd
   });
 }
 
+export function uploadCatalogImages(files: File[]): Promise<{ images: Array<{ imageKey: string; imageUrl: string; imageId: string }> }> {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("image", file));
+  return httpRequest<{ images: Array<{ imageKey: string; imageUrl: string; imageId: string }> }>("/catalog/images", { method: "POST", body: formData });
+}
+
+export function listCatalogProductImages(productId: number): Promise<CatalogProductImage[]> {
+  return httpRequest<CatalogProductImage[]>(`/catalog/products/${productId}/images?companyId=${encodeURIComponent(import.meta.env.VITE_COMPANY_ID ?? "1")}`);
+}
+
+export function attachCatalogProductImage(productId: number, input: { imageKey: string; altText?: string; sortOrder?: number; isPrimary?: boolean; variantSku?: string }): Promise<{ id: number }> {
+  return httpRequest<{ id: number }>(`/catalog/products/${productId}/images`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function deleteCatalogProductImage(productId: number, imageId: number): Promise<void> {
+  return httpRequest<void>(`/catalog/products/${productId}/images/${imageId}`, { method: "DELETE" });
+}
+
 export function deleteCatalogProduct(productId: number): Promise<void> {
   return httpRequest<void>(`/catalog/products/${productId}`, { method: "DELETE" });
 }
@@ -184,8 +229,14 @@ export interface CatalogComponent {
   quantity: number;
 }
 
-export function listCatalogComponents(productId: number): Promise<CatalogComponent[]> {
-  return httpRequest<CatalogComponent[]>(`/catalog/products/${productId}/components`);
+export async function listCatalogComponents(productId: number): Promise<CatalogComponent[]> {
+  const response = await httpRequest<CatalogComponent[]>(`/catalog/products/${productId}/components`);
+  return response.map((component) => ({
+    ...component,
+    parentVariantId: Number(component.parentVariantId),
+    componentVariantId: Number(component.componentVariantId),
+    quantity: Number(component.quantity),
+  }));
 }
 
 export function replaceCatalogComponents(variantId: number, components: Array<{ componentVariantId: number; quantity: number }>): Promise<void> {
@@ -324,6 +375,8 @@ export async function listPublicProducts(filters: PublicCatalogFilters = {}): Pr
         availableQuantity,
         variants: [variant],
         color: colorsByCategory[product.categoryName ?? ""] ?? "#6366f1",
+        imageUrl: product.imageUrl,
+        imageKey: product.imageKey,
       } satisfies ProductCardData;
     }));
     return { products, pagination: response.pagination };
@@ -362,6 +415,8 @@ export async function listPublicProducts(filters: PublicCatalogFilters = {}): Pr
       availableQuantity: product.availableQuantity,
       variants: [variant],
       color: colorsByCategory[product.categoryName ?? ""] ?? "#6366f1",
+      imageUrl: product.imageUrl,
+      imageKey: product.imageKey,
     });
   }
 

@@ -71,6 +71,60 @@ body {
   margin-bottom: 1rem;
 }
 
+.shopcart-variant-gallery {
+  margin: 0 auto 1rem;
+  max-width: 18rem;
+  text-align: center;
+}
+
+.shopcart-gallery-frame {
+  align-items: center;
+  background: #f0f1ff;
+  border: 1px solid #d9dcf4;
+  border-radius: 0.8rem;
+  display: flex;
+  gap: 0.35rem;
+  justify-content: space-between;
+  min-height: 9rem;
+  overflow: hidden;
+  padding: 0.35rem;
+}
+
+.shopcart-gallery-image {
+  height: 8rem;
+  max-width: 12rem;
+  object-fit: contain;
+  width: 100%;
+}
+
+.shopcart-gallery-arrow {
+  align-items: center;
+  background: #2f2eaa;
+  border: 0;
+  border-radius: 999px;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  flex: 0 0 auto;
+  font-size: 1.25rem;
+  height: 1.8rem;
+  justify-content: center;
+  line-height: 1;
+  width: 1.8rem;
+}
+
+.shopcart-gallery-arrow:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.shopcart-gallery-counter {
+  color: #64748b;
+  display: block;
+  font-size: 0.7rem;
+  margin-top: 0.3rem;
+}
+
 .shopcart-variants {
   display: grid;
   gap: 0.65rem;

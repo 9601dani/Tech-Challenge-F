@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Swal from "sweetalert2";
+import "sweetalert2/dist/sweetalert2.min.css";
 import { ProductCard } from "../components/ProductCard";
 import { getManufacturedAvailability, listPublicCategories, listPublicProducts } from "../services/catalogApi";
 import type { CatalogCategory, PublicCatalogFilters } from "../services/catalogApi";
 import type { CartItem, ProductCardData, ProductVariantAttribute } from "../types/catalog.types";
 import { getProductVariantBySku } from "../services/catalogApi";
-import { addCartItem, addGuestCartItem, clearCartItems, clearGuestCartBackend, getCart, getGuestCart, removeCartItem, removeGuestCartItem, updateCartItem, updateGuestCartItem } from "../../cart/services/cartApi";
+import { addCartItem, addGuestCartItem, applyCoupon, clearCartItems, clearGuestCartBackend, getCart, getGuestCart, removeCartItem, removeCoupon, removeGuestCartItem, updateCartItem, updateGuestCartItem } from "../../cart/services/cartApi";
 import { clearGuestCart, readGuestCart, readGuestCartToken, saveGuestCart } from "../../cart/services/guestCartStorage";
 import type { Permission } from "../../auth/types/auth.types";
 
@@ -70,6 +72,13 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
   const [products, setProducts] = useState<ProductCardData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [couponCode, setCouponCode] = useState<string | null>(null);
+  const [couponDiscount, setCouponDiscount] = useState(0);
+
+  function clearCouponState() {
+    setCouponCode(null);
+    setCouponDiscount(0);
+  }
 
   async function enrichCartAvailability(items: CartItem[]): Promise<CartItem[]> {
     const availabilityByVariant = new Map<number, number>();
@@ -216,6 +225,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
         saveGuestCart(hydratedGuestCart);
         setCart(hydratedGuestCart);
         onCartChange(hydratedGuestCart);
+        clearCouponState();
         setError("");
       } catch (requestError) {
         setError(requestError instanceof Error ? requestError.message : "No se pudo agregar el producto al carrito visitante");
@@ -228,6 +238,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
       const enrichedItems = await hydrateCart(nextCart);
       setCart(enrichedItems);
       onCartChange(enrichedItems);
+      clearCouponState();
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo agregar el producto al carrito");
@@ -254,6 +265,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
         saveGuestCart(hydratedGuestCart);
         setCart(hydratedGuestCart);
         onCartChange(hydratedGuestCart);
+        clearCouponState();
         setError("");
       } catch (requestError) {
         setError(requestError instanceof Error ? requestError.message : "No se pudo actualizar el carrito visitante");
@@ -268,6 +280,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
       const enrichedItems = await hydrateCart(nextCart);
       setCart(enrichedItems);
       onCartChange(enrichedItems);
+      clearCouponState();
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo actualizar el carrito");
@@ -281,6 +294,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
           clearGuestCart();
           setCart([]);
           onCartChange([]);
+          clearCouponState();
           setError("");
         })
         .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "No se pudo limpiar el carrito visitante"));
@@ -295,13 +309,62 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
       await clearCartItems(saleItemIds);
       setCart([]);
       onCartChange([]);
+      clearCouponState();
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo limpiar el carrito");
     }
   }
 
+  async function handleApplyCoupon() {
+    if (!isAuthenticated) {
+      await Swal.fire({ icon: "info", title: "Inicia sesión", text: "Debes iniciar sesión para aplicar un cupón.", confirmButtonColor: "#2f2eaa" });
+      navigate("/login");
+      return;
+    }
+
+    const result = await Swal.fire({
+      title: "Aplicar cupón",
+      input: "text",
+      inputLabel: "Código del cupón",
+      inputPlaceholder: "Ej. DESCUENTO10",
+      showCancelButton: true,
+      confirmButtonText: "Aplicar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#2f2eaa",
+      inputValidator: (value) => !value.trim() ? "Ingresa el código del cupón." : undefined,
+    });
+    if (!result.isConfirmed) return;
+
+    try {
+      const applied = await applyCoupon(String(result.value).trim().toUpperCase());
+      setCouponCode(applied.couponCode);
+      setCouponDiscount(Number(applied.discountAmount));
+      await Swal.fire({ icon: "success", title: "Cupón aplicado", text: `Descuento aplicado: Q ${Number(applied.discountAmount).toFixed(2)}`, confirmButtonColor: "#2f2eaa" });
+      setError("");
+    } catch (requestError) {
+      await Swal.fire({
+        icon: "error",
+        title: "No se pudo aplicar el cupón",
+        text: requestError instanceof Error ? requestError.message : "No se pudo aplicar el cupón",
+        confirmButtonColor: "#2f2eaa",
+      });
+    }
+  }
+
+  async function handleRemoveCoupon() {
+    try {
+      await removeCoupon();
+      setCouponCode(null);
+      setCouponDiscount(0);
+      setError("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo retirar el cupón");
+    }
+  }
+
   const cartSubtotal = cart.reduce((total, item) => total + item.price * item.quantity, 0);
+  const cartTotal = Math.max(0, cartSubtotal - couponDiscount);
   const canEditProducts = permissions.some((permission) => permission.feature === "CATALOG_PRODUCTS" && permission.enabled && permission.canEdit);
 
   return (
@@ -358,8 +421,7 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
             <>
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto py-5">
                 {cart.map((item) => (
-                  <div className="flex gap-3" key={item.id}>
-                    <div className="h-14 w-14 shrink-0 rounded-xl" style={{ backgroundColor: item.color }} />
+                  <div className="flex" key={item.id}>
                     <div className="min-w-0 flex-1">
                       <p className="break-words text-sm font-bold leading-tight text-[#0f172a]">{item.name}</p>
                       {getCartVariantLines(item).map((line) => (
@@ -385,8 +447,10 @@ export function StorefrontPage({ onCartChange, isAuthenticated, permissions = []
                 ))}
               </div>
               <div className="border-t border-[#eef0ff] pt-4">
+                {couponCode ? <div className="mb-3 flex items-center justify-between rounded-lg bg-[#eef0ff] px-3 py-2 text-sm"><span><strong>Cupón {couponCode}</strong><br /><span className="text-[#2f2eaa]">Descuento: Q {couponDiscount.toFixed(2)}</span></span><button className="text-xs font-bold text-[#dc2626] hover:underline" onClick={() => void handleRemoveCoupon()} type="button">Quitar</button></div> : <button className="mb-3 w-full rounded-xl border border-[#d9dcf4] px-4 py-2 text-sm font-bold text-[#2f2eaa] transition hover:bg-[#eef0ff]" onClick={() => void handleApplyCoupon()} type="button">Aplicar cupón</button>}
                 <div className="flex justify-between text-sm text-[#64748b]"><span>Subtotal</span><span>Q {cartSubtotal.toFixed(2)}</span></div>
-                <div className="mt-2 flex justify-between text-lg font-black text-[#0f172a]"><span>Total</span><span className="text-[#2f2eaa]">Q {cartSubtotal.toFixed(2)}</span></div>
+                {couponDiscount > 0 && <div className="mt-1 flex justify-between text-sm text-emerald-700"><span>Descuento</span><span>- Q {couponDiscount.toFixed(2)}</span></div>}
+                <div className="mt-2 flex justify-between text-lg font-black text-[#0f172a]"><span>Total</span><span className="text-[#2f2eaa]">Q {cartTotal.toFixed(2)}</span></div>
                 <div className="mt-5 grid grid-cols-[1fr_auto] gap-3">
                   <button className="rounded-xl bg-[#2f2eaa] px-4 py-3 font-bold text-white transition hover:bg-[#25248e]" onClick={() => navigate("/checkout")} type="button">Continuar al pago</button>
                   <button aria-label="Limpiar carrito" className="rounded-xl border border-[#fecaca] px-4 py-3 text-[#dc2626] transition hover:bg-[#fef2f2]" onClick={handleClearCart} title="Limpiar carrito" type="button">🗑</button>

@@ -73,6 +73,24 @@ export async function clearCartItems(saleItemIds: number[]): Promise<void> {
   await clearCart();
 }
 
+export interface AppliedCoupon {
+  saleId: number;
+  couponCode: string;
+  discountAmount: number;
+  total: number;
+}
+
+export function applyCoupon(code: string): Promise<AppliedCoupon> {
+  return httpRequest<AppliedCoupon>("/coupons/cart/apply", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function removeCoupon(): Promise<void> {
+  return httpRequest<void>("/coupons/cart", { method: "DELETE" });
+}
+
 const guestOptions = (method: string, body?: unknown): RequestInit => ({
   method,
   headers: { "X-Guest-Cart-Token": getOrCreateGuestCartToken() },

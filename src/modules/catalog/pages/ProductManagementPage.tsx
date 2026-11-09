@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { resolveImageUrl } from "../../../shared/utils/imageUrl";
 import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 import {
@@ -8,17 +9,22 @@ import {
   createCatalogVariant,
   createCatalogAttribute,
   createCatalogAttributeValue,
+  attachCatalogProductImage,
+  deleteCatalogProductImage,
   deleteCatalogProduct,
   listCatalogComponents,
   listCatalogCategories,
   listCatalogAttributes,
   listCatalogProducts,
+  listCatalogProductImages,
   getProductVariants,
   reactivateCatalogProduct,
   updateCatalogProduct,
   updateCatalogVariant,
   replaceCatalogComponents,
   replaceCatalogVariantAttributes,
+  uploadCatalogImages,
+  type CatalogProductImage,
   type CatalogAttribute,
   type CatalogComponent,
   type CatalogCategory,
@@ -83,6 +89,7 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
   const [editableVariants, setEditableVariants] = useState<EditableVariant[]>([]);
   const [newVariants, setNewVariants] = useState<VariantDraft[]>([]);
   const [editableComponents, setEditableComponents] = useState<Record<number, EditableComponent[]>>({});
+  const [componentLabels, setComponentLabels] = useState<Record<number, string>>({});
   const [editableAttributes, setEditableAttributes] = useState<Record<number, EditableAttribute[]>>({});
   const [editingVariantIds, setEditingVariantIds] = useState<number[]>([]);
   const [attributeOptions, setAttributeOptions] = useState<CatalogAttribute[]>([]);
@@ -92,6 +99,16 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [selectedImages, setSelectedImages] = useState<File[]>([]);
+  const [selectedImagePreviews, setSelectedImagePreviews] = useState<Array<{ file: File; url: string }>>([]);
+  const [selectedImageVariants, setSelectedImageVariants] = useState<Record<string, string>>({});
+  const [productImages, setProductImages] = useState<CatalogProductImage[]>([]);
+
+  useEffect(() => {
+    const previews = selectedImages.map((file) => ({ file, url: URL.createObjectURL(file) }));
+    setSelectedImagePreviews(previews);
+    return () => previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+  }, [selectedImages]);
   const productsSectionRef = useRef<HTMLElement | null>(null);
 
   const groupedProducts = useMemo(() => {
@@ -155,10 +172,15 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     setExtraVariants([]);
     setEditableVariants(productVariants.map((variant) => ({ id: variant.variantId, sku: variant.sku, name: variant.variantName ?? item.name, price: String(variant.price ?? ""), initialQuantity: String(variant.stockQuantity ?? 0) })));
     setEditableComponents({});
+    setComponentLabels({});
     setEditingVariantIds(productVariants.map((variant) => variant.variantId));
     setEditableAttributes({});
+    setSelectedImages([]);
+    setSelectedImageVariants({});
+    setProductImages([]);
     try {
-      const [variantDetails, availableAttributes] = await Promise.all([getProductVariants(item.productId), listCatalogAttributes()]);
+      const [variantDetails, availableAttributes, images] = await Promise.all([getProductVariants(item.productId), listCatalogAttributes(), listCatalogProductImages(item.productId)]);
+      setProductImages(images);
       setAttributeOptions(availableAttributes);
       const currentAttributes: Record<number, EditableAttribute[]> = {};
       variantDetails.forEach((variant) => {
@@ -177,6 +199,7 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     if (item.isComposite) {
       try {
         const components = await listCatalogComponents(item.productId);
+        setComponentLabels(Object.fromEntries(components.map((component) => [component.componentVariantId, component.componentName || component.componentProductName || component.componentSku])));
         const componentsByVariant = components.reduce<Record<number, EditableComponent[]>>((result, component: CatalogComponent) => {
           result[component.parentVariantId] = [...(result[component.parentVariantId] ?? []), { componentVariantId: component.componentVariantId, quantity: String(component.quantity) }];
           return result;
@@ -189,7 +212,40 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function resetForm() { setEditingId(null); setForm(emptyForm); setExtraVariants([]); setEditableVariants([]); setNewVariants([]); setEditableComponents({}); setEditableAttributes({}); setEditingVariantIds([]); }
+  function resetForm() { setEditingId(null); setForm(emptyForm); setExtraVariants([]); setEditableVariants([]); setNewVariants([]); setEditableComponents({}); setComponentLabels({}); setEditableAttributes({}); setEditingVariantIds([]); setSelectedImages([]); setSelectedImageVariants({}); setProductImages([]); }
+
+  function removeSelectedImage(index: number) {
+    const file = selectedImages[index];
+    setSelectedImages((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    if (file) setSelectedImageVariants((current) => {
+      const next = { ...current };
+      delete next[imageFileKey(file)];
+      return next;
+    });
+  }
+
+  function imageFileKey(file: File): string { return `${file.name}-${file.size}-${file.lastModified}`; }
+
+  function addSelectedImages(files: File[]) {
+    setSelectedImages((current) => {
+      const existing = new Set(current.map(imageFileKey));
+      const newFiles = files.filter((file) => !existing.has(imageFileKey(file)));
+      return [...current, ...newFiles];
+    });
+  }
+
+  function updateSelectedImageVariant(file: File, variantSku: string) {
+    setSelectedImageVariants((current) => ({ ...current, [imageFileKey(file)]: variantSku }));
+  }
+
+  function addSelectedImagesForVariant(files: File[], variantSku: string) {
+    addSelectedImages(files);
+    setSelectedImageVariants((current) => {
+      const next = { ...current };
+      files.forEach((file) => { next[imageFileKey(file)] = variantSku; });
+      return next;
+    });
+  }
 
   function updateExtraVariant(index: number, field: keyof VariantDraft, value: string) {
     setExtraVariants((current) => current.map((variant, currentIndex) => currentIndex === index ? { ...variant, [field]: value } : variant));
@@ -342,6 +398,13 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
       };
       if (editingId) {
         await updateCatalogProduct(editingId, common);
+        if (selectedImages.length > 0) {
+          const uploaded = await uploadCatalogImages(selectedImages);
+          await Promise.all(uploaded.images.map((image, index) => {
+            const variantSku = selectedImageVariants[imageFileKey(selectedImages[index])];
+            return attachCatalogProductImage(editingId, { imageKey: image.imageKey, sortOrder: productImages.length + index, ...(variantSku ? { variantSku } : {}) });
+          }));
+        }
         if (editableVariants.length > 0) {
           if (editableVariants.some((variant) => !variant.sku.trim() || variant.price === "" || Number(variant.price) < 0)) {
             setError("Cada variante debe tener SKU y un precio válido.");
@@ -363,12 +426,16 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
         }
         await Swal.fire({ icon: "success", title: "Producto actualizado", text: "Los cambios se guardaron.", confirmButtonColor: "#2f2eaa" });
       } else {
+        const uploaded = selectedImages.length > 0 ? await uploadCatalogImages(selectedImages) : { images: [] };
         const defaultComponents = form.isComposite ? mergeComponents(editableComponents[-1] ?? [])
           .filter((component) => component.componentVariantId > 0 && Number(component.quantity) > 0)
           .map((component) => ({ componentVariantId: component.componentVariantId, quantity: Number(component.quantity) })) : [];
         const variants = [{ sku: form.sku.trim(), name: form.name.trim(), price: Number(form.price), initialQuantity: Number(form.initialQuantity) || 0, ...(defaultComponents.length > 0 ? { components: defaultComponents } : {}) }, ...extraVariants.map((variant) => ({ sku: variant.sku.trim(), name: variant.name.trim() || form.name.trim(), price: Number(variant.price), initialQuantity: Number(variant.initialQuantity) || 0, ...(form.isComposite && variant.components && variant.components.length > 0 ? { components: mergeComponents(variant.components).filter((component) => component.componentVariantId > 0 && Number(component.quantity) > 0).map((component) => ({ componentVariantId: component.componentVariantId, quantity: Number(component.quantity) })) } : {}) }))];
         if (variants.some((variant) => !variant.sku || Number.isNaN(variant.price) || variant.price < 0)) { setError("Cada variante debe tener SKU y un precio válido."); return; }
-        await createCatalogProduct({ ...common, variants });
+        await createCatalogProduct({ ...common, variants, images: uploaded.images.map((image, index) => {
+          const variantSku = selectedImageVariants[imageFileKey(selectedImages[index])];
+          return { imageKey: image.imageKey, sortOrder: index, isPrimary: index === 0, ...(variantSku ? { variantSku } : {}) };
+        }) });
         await Swal.fire({ icon: "success", title: "Producto creado", text: "El producto y su variante fueron registrados.", confirmButtonColor: "#2f2eaa" });
       }
       // Después de guardar no se conserva el formulario abierto. Esto evita
@@ -379,6 +446,16 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "No se pudo guardar el producto");
     } finally { setSaving(false); }
+  }
+
+  async function removeProductImage(image: CatalogProductImage) {
+    if (!editingId) return;
+    const result = await Swal.fire({ title: "¿Eliminar imagen?", text: "La imagen se desactivará para este producto.", icon: "warning", showCancelButton: true, confirmButtonColor: "#dc2626", confirmButtonText: "Eliminar", cancelButtonText: "Cancelar" });
+    if (!result.isConfirmed) return;
+    try {
+      await deleteCatalogProductImage(editingId, image.id);
+      setProductImages((current) => current.filter((item) => item.id !== image.id));
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "No se pudo eliminar la imagen"); }
   }
 
   async function deactivate(item: CatalogProductAdminItem) {
@@ -426,8 +503,30 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
     : editingId
       ? products.filter((product) => product.productId === editingId).map((product) => ({ id: product.variantId, label: product.variantName || product.sku }))
       : form.isComposite ? [{ id: -1, label: form.name || "Variante predeterminada" }] : [];
-  const componentOptions = products.filter((product) => editingId === null || product.productId !== editingId);
+  const componentOptions = [...products.filter((product) => editingId === null || product.productId !== editingId), ...Object.entries(componentLabels)
+    .filter(([variantId]) => !products.some((product) => Number(product.variantId) === Number(variantId)))
+    .map(([variantId, name]) => ({ productId: 0, companyId: 0, variantId: Number(variantId), categoryId: null, categoryName: null, code: "", name, description: null, isComposite: false, showPos: true, active: true, sku: "", variantName: name, price: null, stockQuantity: 0, availableQuantity: 0 }))];
   const hasExplicitVariants = editingId ? editableVariants.length > 1 : extraVariants.length > 0;
+  const imageVariantOptions = editingId
+    ? editableVariants.map((variant) => ({ sku: variant.sku, label: variant.name || variant.sku }))
+    : [{ sku: form.sku, label: form.name || form.sku }, ...extraVariants.map((variant) => ({ sku: variant.sku, label: variant.name || variant.sku }))]
+      .filter((variant) => variant.sku.trim());
+  const hasVariantSpecificImages = imageVariantOptions.length > 1 || imageVariantOptions.some((variant) =>
+    !/(?:^|-)DEFAULT$/i.test(variant.sku) && variant.label.trim().toLocaleLowerCase() !== form.name.trim().toLocaleLowerCase()
+  );
+
+  function renderVariantImages(variant: { sku: string; label: string; id?: number }) {
+    const pendingImages = selectedImagePreviews.filter((preview) => selectedImageVariants[imageFileKey(preview.file)] === variant.sku);
+    const savedImages = variant.id ? productImages.filter((image) => image.variantId === variant.id) : [];
+    return <div className="mt-3 rounded-lg border border-dashed border-[#c7c9df] bg-white p-3">
+      <p className="text-xs font-bold text-[#2f2eaa]">Imágenes de {variant.label}</p>
+      <input accept="image/jpeg,image/png,image/webp" className="field mt-2" multiple onChange={(event) => { addSelectedImagesForVariant(Array.from(event.target.files ?? []), variant.sku); event.currentTarget.value = ""; }} type="file" />
+      {(pendingImages.length > 0 || savedImages.length > 0) && <div className="mt-2 flex flex-wrap gap-2">
+        {pendingImages.map((preview) => <div className="relative w-16 rounded border border-dashed border-[#2f2eaa] p-1" key={`${preview.file.name}-${preview.file.lastModified}`}><img alt={preview.file.name} className="h-12 w-full rounded object-cover" src={preview.url} /><button className="absolute right-0 top-0 rounded bg-red-600 px-1 text-[9px] font-bold text-white" onClick={() => removeSelectedImage(selectedImages.findIndex((file) => imageFileKey(file) === imageFileKey(preview.file)))} type="button">×</button></div>)}
+        {savedImages.map((image) => <div className="relative w-16 rounded border border-[#d9dcf4] p-1" key={image.id}><img alt={image.altText ?? "Imagen del producto"} className="h-12 w-full rounded object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} src={resolveImageUrl(image.imageKey)} /><button className="absolute right-0 top-0 rounded bg-red-600 px-1 text-[9px] font-bold text-white" onClick={() => void removeProductImage(image)} type="button">×</button></div>)}
+      </div>}
+    </div>;
+  }
 
   return (
     <main className="min-h-[calc(100vh-73px)] bg-[#f7f7ff] px-4 py-6 text-[#0f172a] sm:px-6 lg:px-8">
@@ -447,9 +546,17 @@ export function ProductManagementPage({ canEdit, canDelete }: ProductManagementP
             <label className="text-sm font-semibold">Nombre<input className="field" onChange={(e) => updateField("name", e.target.value)} required value={form.name} /></label>
             <label className="text-sm font-semibold">Categoría<select className="field" onChange={(e) => updateField("categoryId", e.target.value)} value={form.categoryId}><option value="">Sin categoría</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
             <label className="text-sm font-semibold">Descripción<input className="field" onChange={(e) => updateField("description", e.target.value)} value={form.description} /></label>
+            {!hasVariantSpecificImages && <div className="rounded-xl border border-[#d9dcf4] bg-[#fafaff] p-3 text-sm md:col-span-2 xl:col-span-4">
+              <p className="font-bold">Imágenes del producto</p>
+              <p className="mt-1 text-xs text-[#64748b]">Selecciona una o varias imágenes. Se subirán al bucket al guardar.</p>
+              <input accept="image/jpeg,image/png,image/webp" className="field mt-3" multiple onChange={(event) => { addSelectedImages(Array.from(event.target.files ?? [])); event.currentTarget.value = ""; }} type="file" />
+              {selectedImagePreviews.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6"><p className="col-span-full text-xs font-bold uppercase tracking-wide text-[#64748b]">Pendientes de guardar</p>{selectedImagePreviews.map((preview, index) => <div className="relative rounded-lg border border-dashed border-[#2f2eaa] bg-white p-1" key={`${preview.file.name}-${preview.file.lastModified}`}><img alt={preview.file.name} className="h-14 w-full rounded object-cover" src={preview.url} /><button aria-label={`Quitar ${preview.file.name}`} className="absolute right-0 top-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white" onClick={() => removeSelectedImage(index)} type="button">×</button><p className="mt-1 truncate text-[9px] text-[#64748b]">{preview.file.name}</p>{imageVariantOptions.length > 1 && <select className="mt-1 w-full rounded border border-[#d9dcf4] px-1 py-1 text-[9px]" onChange={(event) => updateSelectedImageVariant(preview.file, event.target.value)} value={selectedImageVariants[imageFileKey(preview.file)] ?? ""}><option value="">Imagen general</option>{imageVariantOptions.map((variant) => <option key={variant.sku} value={variant.sku}>{variant.label}</option>)}</select>}</div>)}</div>}
+              {editingId && productImages.length > 0 && <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">{productImages.map((image) => <div className="relative rounded-lg border border-[#d9dcf4] bg-white p-1" key={image.id}><img alt={image.altText ?? "Imagen del producto"} className="h-14 w-full rounded object-cover" onError={(event) => { event.currentTarget.style.display = "none"; }} src={resolveImageUrl(image.imageKey)} /><button className="absolute right-0 top-0 rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white" onClick={() => void removeProductImage(image)} type="button">×</button><p className="mt-1 truncate text-[9px] text-[#64748b]">{image.imageKey}</p></div>)}</div>}
+            </div>}
             {!editingId && <><label className="text-sm font-semibold">SKU inicial<input className="field" onChange={(e) => updateField("sku", e.target.value)} required value={form.sku} /></label><label className="text-sm font-semibold">Precio<input className="field" min="0" onChange={(e) => updateField("price", e.target.value)} required step="0.01" type="number" value={form.price} /></label><label className="text-sm font-semibold">Existencia inicial<input className="field" min="0" onChange={(e) => updateField("initialQuantity", e.target.value)} step="0.001" type="number" value={form.initialQuantity} /></label><div className="md:col-span-2 xl:col-span-4"><div className="mb-2 flex items-center justify-between"><span className="text-sm font-bold">Variantes adicionales</span><button className="text-sm font-bold text-[#2f2eaa]" onClick={() => setExtraVariants((current) => [...current, { sku: "", name: "", price: "", initialQuantity: "0", components: [] }])} type="button">+ Agregar variante</button></div>{extraVariants.map((variant, index) => <div className="mb-3 rounded-xl bg-[#f7f7ff] p-3" key={index}><div className="grid gap-3 sm:grid-cols-4"><input className="field mt-0" onChange={(e) => updateExtraVariant(index, "sku", e.target.value)} placeholder="SKU" value={variant.sku} /><input className="field mt-0" onChange={(e) => updateExtraVariant(index, "name", e.target.value)} placeholder="Nombre" value={variant.name} /><input className="field mt-0" min="0" onChange={(e) => updateExtraVariant(index, "price", e.target.value)} placeholder="Precio" step="0.01" type="number" value={variant.price} /><div className="flex gap-2"><input className="field mt-0" min="0" onChange={(e) => updateExtraVariant(index, "initialQuantity", e.target.value)} placeholder="Existencia" step="0.001" type="number" value={variant.initialQuantity} /><button className="rounded-lg px-2 text-red-600" onClick={() => setExtraVariants((current) => current.filter((_, currentIndex) => currentIndex !== index))} type="button">×</button></div></div>{variant.components !== undefined && <div className="mt-3 rounded-lg bg-white p-3"><p className="mb-2 text-sm font-bold text-[#2f2eaa]">Componentes de {variant.name || "esta variante"}</p>{(variant.components ?? []).map((component, componentIndex) => <div className="mb-2 flex flex-col gap-2 sm:flex-row" key={`${index}-${componentIndex}`}><select className="field mt-0 flex-1" onChange={(event) => updateExtraVariantComponent(index, componentIndex, "componentVariantId", event.target.value)} value={component.componentVariantId || ""}><option value="">Selecciona un componente</option>{componentOptions.map((option) => <option key={`${option.productId}-${option.variantId}`} value={option.variantId}>{option.name}</option>)}</select><input className="field mt-0 w-full sm:max-w-32" min="0.001" onChange={(event) => updateExtraVariantComponent(index, componentIndex, "quantity", event.target.value)} step="0.001" type="number" value={component.quantity} /><button className="rounded-lg bg-red-50 px-3 py-2 font-bold text-red-700" onClick={() => removeExtraVariantComponent(index, componentIndex)} type="button">Quitar</button></div>)}<button className="text-sm font-bold text-[#2f2eaa]" onClick={() => addExtraVariantComponent(index)} type="button">+ Agregar componente</button></div>}</div>)}</div></>}
+            {!editingId && hasVariantSpecificImages && <div className="rounded-xl border border-[#d9dcf4] bg-[#fafaff] p-4 text-sm md:col-span-2 xl:col-span-4"><p className="font-bold">Imágenes por variante</p>{imageVariantOptions.map((variant) => <div key={variant.sku}>{renderVariantImages(variant)}</div>)}</div>}
             <div className="flex flex-wrap items-center gap-4 text-sm md:col-span-2 xl:col-span-4"><label><input checked={form.showPos} onChange={(e) => updateField("showPos", e.target.checked)} type="checkbox" /> <span className="ml-1">Mostrar en tienda</span></label>{!hasExplicitVariants && <label><input checked={form.isComposite} onChange={(e) => toggleComposite(e.target.checked)} type="checkbox" /> <span className="ml-1">Producto compuesto</span></label>}<label><input checked={form.trackInventory} onChange={(e) => updateField("trackInventory", e.target.checked)} type="checkbox" /> <span className="ml-1">Controla inventario</span></label></div>
-            {editingId && <div className="rounded-xl bg-[#f7f7ff] p-4 md:col-span-2 xl:col-span-4"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold">Variantes del producto</p><button className="text-sm font-bold text-[#2f2eaa]" onClick={() => setNewVariants((current) => [...current, { sku: "", name: "", price: "", initialQuantity: "0" }])} type="button">+ Nueva variante</button></div>{editableVariants.length > 0 && <div className="space-y-3">{editableVariants.map((variant, index) => <div className="grid gap-3 sm:grid-cols-3" key={variant.id}><label className="text-sm font-semibold">SKU<input className="field" onChange={(event) => updateEditableVariant(index, "sku", event.target.value)} value={variant.sku} /></label><label className="text-sm font-semibold">Nombre<input className="field" onChange={(event) => updateEditableVariant(index, "name", event.target.value)} value={variant.name} /></label><label className="text-sm font-semibold">Precio<input className="field" min="0" onChange={(event) => updateEditableVariant(index, "price", event.target.value)} step="0.01" type="number" value={variant.price} /></label></div>)}</div>}{newVariants.map((variant, index) => <div className="mt-3 grid gap-3 rounded-xl border border-dashed border-[#c7c9df] p-3 sm:grid-cols-4" key={`new-${index}`}><input className="field mt-0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, sku: event.target.value } : item))} placeholder="SKU" value={variant.sku} /><input className="field mt-0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder="Nombre" value={variant.name} /><input className="field mt-0" min="0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item))} placeholder="Precio" step="0.01" type="number" value={variant.price} /><input className="field mt-0" min="0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, initialQuantity: event.target.value } : item))} placeholder="Existencia inicial" step="0.001" type="number" value={variant.initialQuantity} /><button className="rounded-lg bg-[#2f2eaa] px-3 py-2 text-sm font-bold text-white" disabled={saving} onClick={() => void saveNewVariant(index)} type="button">Guardar variante</button></div>)}</div>}
+            {editingId && <div className="rounded-xl bg-[#f7f7ff] p-4 md:col-span-2 xl:col-span-4"><div className="mb-3 flex items-center justify-between"><p className="text-sm font-bold">Variantes del producto</p><button className="text-sm font-bold text-[#2f2eaa]" onClick={() => setNewVariants((current) => [...current, { sku: "", name: "", price: "", initialQuantity: "0" }])} type="button">+ Nueva variante</button></div>{editableVariants.length > 0 && <div className="space-y-3">{editableVariants.map((variant, index) => <div className="grid gap-3 sm:grid-cols-3" key={variant.id}><label className="text-sm font-semibold">SKU<input className="field" onChange={(event) => updateEditableVariant(index, "sku", event.target.value)} value={variant.sku} /></label><label className="text-sm font-semibold">Nombre<input className="field" onChange={(event) => updateEditableVariant(index, "name", event.target.value)} value={variant.name} /></label><label className="text-sm font-semibold">Precio<input className="field" min="0" onChange={(event) => updateEditableVariant(index, "price", event.target.value)} step="0.01" type="number" value={variant.price} /></label></div>)}</div>}{hasVariantSpecificImages && <div className="mt-4 space-y-3"><p className="text-sm font-bold">Imágenes por variante</p>{imageVariantOptions.map((variant) => { const current = editableVariants.find((item) => item.sku === variant.sku); return <div key={variant.sku}>{renderVariantImages({ ...variant, id: current?.id })}</div>; })}</div>}{newVariants.map((variant, index) => <div className="mt-3 grid gap-3 rounded-xl border border-dashed border-[#c7c9df] p-3 sm:grid-cols-4" key={`new-${index}`}><input className="field mt-0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, sku: event.target.value } : item))} placeholder="SKU" value={variant.sku} /><input className="field mt-0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, name: event.target.value } : item))} placeholder="Nombre" value={variant.name} /><input className="field mt-0" min="0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, price: event.target.value } : item))} placeholder="Precio" step="0.01" type="number" value={variant.price} /><input className="field mt-0" min="0" onChange={(event) => setNewVariants((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, initialQuantity: event.target.value } : item))} placeholder="Existencia inicial" step="0.001" type="number" value={variant.initialQuantity} /><button className="rounded-lg bg-[#2f2eaa] px-3 py-2 text-sm font-bold text-white" disabled={saving} onClick={() => void saveNewVariant(index)} type="button">Guardar variante</button></div>)}</div>}
             {editingId && editingVariantIds.length > 0 && <div className="rounded-xl border border-[#d9dcf4] bg-white p-4 md:col-span-2 xl:col-span-4"><div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-bold">Atributos de las variantes</p><p className="text-xs text-[#64748b]">Selecciona valores como color, talla o cualquier otro atributo configurado.</p></div><button className="rounded-lg bg-[#eef0ff] px-3 py-2 text-xs font-bold text-[#2f2eaa]" onClick={() => void createAttribute()} type="button">+ Nuevo atributo</button></div><div className="grid gap-4 lg:grid-cols-2">{editingVariantIds.map((variantId) => <div className="rounded-xl bg-[#f7f7ff] p-3" key={variantId}><p className="mb-3 text-sm font-bold text-[#2f2eaa]">{products.find((product) => product.variantId === variantId)?.variantName || products.find((product) => product.variantId === variantId)?.sku || `Variante ${variantId}`}</p>{(editableAttributes[variantId] ?? []).map((attribute, index) => { const definition = attributeOptions.find((option) => option.attributeId === attribute.attributeId); return <div className="mb-2 flex flex-col gap-2 sm:flex-row" key={`${variantId}-${index}`}><select className="field mt-0 flex-1" onChange={(event) => updateAttribute(variantId, index, "attributeId", event.target.value)} value={attribute.attributeId}><option value="">Atributo</option>{attributeOptions.filter((option) => option.attributeId === attribute.attributeId || !(editableAttributes[variantId] ?? []).some((current) => current.attributeId === option.attributeId)).map((option) => <option key={option.attributeId} value={option.attributeId}>{option.name}</option>)}</select><select className="field mt-0 flex-1" onChange={(event) => updateAttribute(variantId, index, "attributeValueId", event.target.value)} value={attribute.attributeValueId}><option value="">Valor</option>{(definition?.values ?? []).map((value) => <option key={value.attributeValueId} value={value.attributeValueId}>{value.value}</option>)}</select>{definition && <button className="rounded-lg bg-[#eef0ff] px-3 py-2 text-xs font-bold text-[#2f2eaa]" onClick={() => void createAttributeValue(definition.attributeId)} type="button">+ Valor</button>}<button className="rounded-lg bg-red-50 px-3 py-2 font-bold text-red-700" onClick={() => removeAttribute(variantId, index)} type="button">Quitar</button></div>; })}<button className="text-sm font-bold text-[#2f2eaa] disabled:text-[#94a3b8]" disabled={attributeOptions.length === 0} onClick={() => void addAttribute(variantId)} type="button">+ Agregar atributo</button></div>)}</div></div>}
             {form.isComposite && <div className="rounded-xl border border-[#d9dcf4] bg-[#fafaff] p-4 md:col-span-2 xl:col-span-4"><div className="mb-3"><p className="text-sm font-bold">Componentes / receta (BOM)</p><p className="text-xs text-[#64748b]">Selecciona los componentes y la cantidad necesaria para fabricar una unidad.</p></div><div className="space-y-4">{componentParentVariants.map((parent) => <div className="rounded-xl bg-white p-3" key={parent.id}><p className="mb-2 text-sm font-bold text-[#2f2eaa]">Variante: {parent.label}</p>{(editableComponents[parent.id] ?? []).map((component, index) => <div className="mb-2 flex flex-col gap-2 sm:flex-row" key={`${parent.id}-${index}`}><select className="field mt-0 flex-1" onChange={(event) => updateComponent(parent.id, index, "componentVariantId", event.target.value)} value={component.componentVariantId || ""}><option value="">Selecciona un componente</option>{componentOptions.map((option) => <option key={`${option.productId}-${option.variantId}`} value={option.variantId}>{option.name}</option>)}</select><input className="field mt-0 w-full sm:max-w-32" min="0.001" onChange={(event) => updateComponent(parent.id, index, "quantity", event.target.value)} step="0.001" type="number" value={component.quantity} /><button className="rounded-lg bg-red-50 px-3 py-2 font-bold text-red-700" onClick={() => removeComponent(parent.id, index)} type="button">Quitar</button></div>)}<button className="text-sm font-bold text-[#2f2eaa]" onClick={() => addComponent(parent.id)} type="button">+ Agregar componente</button></div>)}</div></div>}
             {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2 xl:col-span-4">{error}</p>}

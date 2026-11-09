@@ -13,6 +13,8 @@ export interface ProductCardData {
   variants?: ProductVariantOption[];
   color: string;
   badge?: string;
+  imageUrl?: string | null;
+  imageKey?: string | null;
 }
 
 export interface ProductVariantOption {
@@ -24,6 +26,7 @@ export interface ProductVariantOption {
   reservedQuantity: number;
   availableQuantity: number;
   attributes?: ProductVariantAttribute[];
+  images?: Array<{ imageKey: string; altText?: string | null; sortOrder?: number; isPrimary?: boolean }>;
 }
 
 export interface ProductVariantAttribute {
