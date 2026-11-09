@@ -199,6 +199,7 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
         <div class="shopcart-selection-grid">
           ${attributeNames.map((attributeName, index) => `<label>${escapeHtml(attributeName)}<select id="shopcart-attribute-${index}" data-attribute-name="${escapeHtml(attributeName)}"></select></label>`).join("")}
         </div>
+        <button type="button" id="shopcart-clear-attributes" class="shopcart-clear-filters">Limpiar filtros</button>
         <div id="shopcart-selected-variant" class="shopcart-selected-variant"></div>
       `
       : `
@@ -311,6 +312,7 @@ export function ProductCard({ product, onAdd, directVariantMatch = false }: Prod
           updateGallery(selected?.id);
         };
 
+        document.querySelector<HTMLButtonElement>("#shopcart-clear-attributes")?.addEventListener("click", () => refreshOptions());
         refreshOptions();
       },
       preConfirm: () => {

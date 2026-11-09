@@ -164,6 +164,22 @@ body {
   padding: 0.7rem;
 }
 
+.shopcart-clear-filters {
+  background: transparent;
+  border: 0;
+  color: #2f2eaa;
+  cursor: pointer;
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin: 0.65rem 0 0 auto;
+  padding: 0.2rem;
+}
+
+.shopcart-clear-filters:hover {
+  text-decoration: underline;
+}
+
 .shopcart-variant {
   align-items: center;
   border: 1px solid #d9dcf4;
