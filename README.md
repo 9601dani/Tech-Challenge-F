@@ -1,32 +1,56 @@
-# React + TypeScript + Vite
+# ShopCart Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Frontend de ShopCart desarrollado con React, TypeScript, Vite y Tailwind CSS.
 
-Currently, two official plugins are available:
+## Instalación y ejecución
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+### Requisitos
 
-## React Compiler
+- Node.js 24 LTS o superior.
+- npm.
+- Backend ejecutándose en `http://localhost:3000`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Clonar e instalar
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+git clone https://github.com/9601dani/Tech-Challenge-F.git
+cd Tech-Challenge-F
+npm install
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Crear `.env`:
+
+```env
+VITE_API_URL=http://localhost:3000/api/v1
+VITE_COMPANY_ID=1
+```
+
+### Ejecutar en desarrollo
+
+```bash
+npm run dev
+```
+
+La aplicación estará disponible normalmente en `http://localhost:5173`.
+
+### Validar y generar producción
+
+```bash
+npm run build
+npm run lint
+```
+
+## Librerías principales
+
+| Librería | Uso |
+|---|---|
+| `react` y `react-dom` | Construcción de la interfaz. |
+| `react-router-dom` | Rutas y navegación entre módulos. |
+| `sweetalert2` | Alertas, confirmaciones y formularios modales. |
+| `pdfmake` | Generación de reportes en PDF. |
+| `xlsx` | Exportación de reportes a Excel. |
+| `tailwindcss` | Diseño visual y responsive. |
+| `vite` | Servidor de desarrollo y empaquetado. |
+
+Las imágenes se muestran usando `VITE_S3_PUBLIC_BASE_URL` más el `imageKey`
+devuelto por el backend.

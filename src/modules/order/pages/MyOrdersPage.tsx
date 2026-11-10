@@ -4,7 +4,7 @@ import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 import type { Permission } from "../../auth/types/auth.types";
 import { getProductVariantBySku } from "../../catalog/services/catalogApi";
-import { cancelMyOrder, getMyOrderById, listMyOrders, type OrderListItem } from "../services/orderApi";
+import { createMyOrderReturn, getMyOrderById, listMyOrders, type OrderListItem } from "../services/orderApi";
 
 interface MyOrdersPageProps {
   permissions: Permission[];
@@ -69,14 +69,31 @@ export function MyOrdersPage({ permissions }: MyOrdersPageProps) {
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "No se pudo consultar el pedido"); }
   }
 
-  async function cancelOrder(order: OrderListItem) {
-    const confirmation = await Swal.fire({ title: `¿Cancelar pedido #${order.id}?`, text: "Esta acción reintegrará la existencia correspondiente.", icon: "warning", showCancelButton: true, confirmButtonColor: "#dc2626", confirmButtonText: "Cancelar pedido", cancelButtonText: "Volver" });
-    if (!confirmation.isConfirmed) return;
+  async function returnOrder(order: OrderListItem) {
     try {
+      const detail = await getMyOrderById(order.id);
+      const result = await Swal.fire({
+        title: `Devolver pedido #${order.id}`,
+        html: `<p style="text-align:left;color:#64748b;margin-bottom:1rem">Selecciona las cantidades pendientes que deseas devolver.</p><textarea id="return-reason" class="swal2-textarea" maxlength="1000" placeholder="Motivo de la devolución"></textarea>${detail.items.filter((item) => (item.remainingQuantity ?? item.quantity) > 0).map((item) => { const remaining = item.remainingQuantity ?? item.quantity; const returned = item.returnedQuantity ?? 0; return `<label style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin:.5rem 0;text-align:left"><span>${escapeHtml(item.productName)}${item.variantName ? ` · ${escapeHtml(item.variantName)}` : ""}<small style="display:block;color:#64748b">Pendiente: ${remaining} · Devuelto: ${returned}</small></span><input id="return-qty-${item.id}" type="number" min="0" max="${remaining}" step="0.001" value="0" style="width:90px;padding:.5rem;border:1px solid #d9dcf4;border-radius:.5rem"></label>`; }).join("")}${detail.items.every((item) => (item.remainingQuantity ?? item.quantity) <= 0) ? `<p style="color:#64748b">Este pedido ya no tiene cantidades pendientes de devolución.</p>` : ""}`,
+        showCancelButton: true,
+        confirmButtonColor: "#2f2eaa",
+        confirmButtonText: "Procesar devolución",
+        cancelButtonText: "Volver",
+        focusConfirm: false,
+        preConfirm: () => {
+          const reason = String((document.getElementById("return-reason") as HTMLTextAreaElement | null)?.value ?? "").trim();
+          const items = detail.items.filter((item) => (item.remainingQuantity ?? item.quantity) > 0).map((item) => ({ saleItemId: item.id, quantity: Number((document.getElementById(`return-qty-${item.id}`) as HTMLInputElement | null)?.value ?? 0) })).filter((item) => item.quantity > 0);
+          if (!reason) { Swal.showValidationMessage("El motivo es obligatorio"); return undefined; }
+          if (items.length === 0) { Swal.showValidationMessage("Selecciona al menos una cantidad para devolver"); return undefined; }
+          return { reason, items };
+        },
+      });
+      if (!result.isConfirmed || !result.value) return;
       setBusyOrderId(order.id);
-      const response = await cancelMyOrder(order.id);
+      const response = await createMyOrderReturn(order.id, result.value.reason, result.value.items);
       setOrders((current) => current.map((item) => item.id === order.id ? { ...item, status: response.status } : item));
-    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "No se pudo cancelar el pedido"); }
+      await Swal.fire({ icon: "success", title: "Devolución registrada", text: `El pedido quedó en estado ${labels[response.status] ?? response.status}.`, confirmButtonColor: "#2f2eaa" });
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "No se pudo registrar la devolución"); }
     finally { setBusyOrderId(null); }
   }
 
@@ -99,7 +116,7 @@ export function MyOrdersPage({ permissions }: MyOrdersPageProps) {
             <thead className="bg-[#fafaff] text-xs uppercase tracking-wider text-[#64748b]"><tr><th className="px-5 py-4">Pedido</th><th className="px-5 py-4">Fecha</th><th className="px-5 py-4">Estado</th><th className="px-5 py-4">Artículos</th><th className="px-5 py-4 text-right">Total</th><th className="px-5 py-4 text-right">Acciones</th></tr></thead>
             <tbody className="divide-y divide-[#eef0ff]">
               {loading && <tr><td className="px-5 py-12 text-center text-[#64748b]" colSpan={6}>Cargando pedidos...</td></tr>}
-              {!loading && filteredOrders.map((order) => <tr className="hover:bg-[#fafaff]" key={order.id}><td className="px-5 py-4 font-bold text-[#0f172a]">#{order.id}</td><td className="px-5 py-4 text-[#64748b]">{formatDate(order.saleDate ?? order.createdAt)}</td><td className="px-5 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${colors[order.status] ?? "bg-slate-100 text-slate-700"}`}>{labels[order.status] ?? order.status}</span></td><td className="px-5 py-4 text-[#64748b]">{order.totalItems ?? "—"}</td><td className="px-5 py-4 text-right font-black text-[#2f2eaa]">Q {order.total.toFixed(2)}</td><td className="px-5 py-4"><div className="flex justify-end gap-2">{canRead && <button aria-label={`Ver pedido ${order.id}`} className="rounded-lg border border-[#d9dcf4] px-2.5 py-2 text-[#2f2eaa]" onClick={() => viewOrder(order.id)} title="Ver pedido" type="button">👁</button>}{canEdit && (order.status === "PAID" || order.status === "PREPARING") && <button aria-label={`Cancelar pedido ${order.id}`} className="rounded-lg border border-[#fecaca] px-2.5 py-2 text-[#dc2626]" disabled={busyOrderId === order.id} onClick={() => cancelOrder(order)} title="Cancelar pedido" type="button">🗑</button>}</div></td></tr>)}
+              {!loading && filteredOrders.map((order) => <tr className="hover:bg-[#fafaff]" key={order.id}><td className="px-5 py-4 font-bold text-[#0f172a]">#{order.id}</td><td className="px-5 py-4 text-[#64748b]">{formatDate(order.saleDate ?? order.createdAt)}</td><td className="px-5 py-4"><span className={`rounded-full px-3 py-1 text-xs font-bold ${colors[order.status] ?? "bg-slate-100 text-slate-700"}`}>{labels[order.status] ?? order.status}</span></td><td className="px-5 py-4 text-[#64748b]">{order.totalItems ?? "—"}</td><td className="px-5 py-4 text-right font-black text-[#2f2eaa]">Q {order.total.toFixed(2)}</td><td className="px-5 py-4"><div className="flex justify-end gap-2">{canRead && <button aria-label={`Ver pedido ${order.id}`} className="rounded-lg border border-[#d9dcf4] px-2.5 py-2 text-[#2f2eaa]" onClick={() => viewOrder(order.id)} title="Ver pedido" type="button">👁</button>}{canEdit && ["PAID", "PREPARING", "SHIPPED", "DELIVERED", "PARTIALLY_RETURNED"].includes(order.status) && <button aria-label={`Devolver pedido ${order.id}`} className="rounded-lg border border-[#fed7aa] px-2.5 py-2 text-[#c2410c]" disabled={busyOrderId === order.id} onClick={() => void returnOrder(order)} title="Devolución parcial o total" type="button">↩</button>}</div></td></tr>)}
               {!loading && filteredOrders.length === 0 && <tr><td className="px-5 py-12 text-center text-[#64748b]" colSpan={6}>No tienes pedidos para mostrar.</td></tr>}
             </tbody>
           </table>

@@ -19,6 +19,7 @@ import { RoleManagementPage } from "./modules/user/pages/RoleManagementPage";
 import { CouponManagementPage } from "./modules/coupon/pages/CouponManagementPage";
 import { InventoryPage } from "./modules/inventory/pages/InventoryPage";
 import { AuditPage } from "./modules/audit/pages/AuditPage";
+import { ReportsPage } from "./modules/report/pages/ReportsPage";
 import type { AuthResponse } from "./modules/auth/types/auth.types";
 import type { CartItem } from "./modules/catalog/types/catalog.types";
 import type { ReactNode } from "react";
@@ -106,6 +107,7 @@ function ApplicationRoutes() {
         <Route path="/coupons" element={<PermissionRoute permissions={session?.permissions ?? []} feature="COUPONS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><CouponManagementPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/inventory" element={<PermissionRoute permissions={session?.permissions ?? []} feature="INVENTORY" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><InventoryPage canEdit={Boolean(session?.permissions.some((permission) => permission.feature === "INVENTORY" && permission.enabled && permission.canEdit))} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/audit" element={<PermissionRoute permissions={session?.permissions ?? []} feature="AUDIT" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><AuditPage /></WorkspaceLayout></PermissionRoute>} />
+        <Route path="/reports" element={<PermissionRoute permissions={session?.permissions ?? []} feature="REPORTS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><ReportsPage /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/orders" element={<ProtectedRoute><WorkspaceLayout session={session} onLogout={handleLogout}><OrdersPage permissions={session?.permissions ?? []} /></WorkspaceLayout></ProtectedRoute>} />
         <Route path="/my-orders" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyOrdersPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/my-orders/addresses" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyAddressesPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />

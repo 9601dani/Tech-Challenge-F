@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Swal from "sweetalert2";
 import "sweetalert2/dist/sweetalert2.min.css";
 import type { Permission } from "../../auth/types/auth.types";
-import { cancelOrder, changeOrderStatus, getOrderById, listOrders, type OrderListItem } from "../services/orderApi";
+import { cancelOrder, changeOrderStatus, createOrderReturn, getOrderById, listOrders, type OrderListItem } from "../services/orderApi";
 
 interface OrdersPageProps {
   permissions: Permission[];
@@ -142,6 +142,37 @@ export function OrdersPage({ permissions }: OrdersPageProps) {
     }
   }
 
+  async function createReturn(order: OrderListItem) {
+    try {
+      const detail = await getOrderById(order.id);
+      const result = await Swal.fire({
+        title: `Devolver pedido #${order.id}`,
+        html: `<p style="text-align:left;color:#64748b;margin-bottom:1rem">Indica la cantidad pendiente a devolver por cada línea.</p><textarea id="return-reason" class="swal2-textarea" maxlength="1000" placeholder="Motivo de la devolución"></textarea>${detail.items.filter((item) => (item.remainingQuantity ?? item.quantity) > 0).map((item) => { const remaining = item.remainingQuantity ?? item.quantity; const returned = item.returnedQuantity ?? 0; return `<label style="display:flex;justify-content:space-between;align-items:center;gap:1rem;margin:.5rem 0;text-align:left"><span>${escapeHtml(item.productName)}${item.variantName ? ` · ${escapeHtml(item.variantName)}` : ""}<small style="display:block;color:#64748b">Pendiente: ${remaining} · Devuelto: ${returned}</small></span><input id="return-qty-${item.id}" type="number" min="0" max="${remaining}" step="0.001" value="0" style="width:90px;padding:.5rem;border:1px solid #d9dcf4;border-radius:.5rem"></label>`; }).join("")}${detail.items.every((item) => (item.remainingQuantity ?? item.quantity) <= 0) ? `<p style="color:#64748b">Este pedido ya no tiene cantidades pendientes de devolución.</p>` : ""}`,
+        showCancelButton: true,
+        confirmButtonColor: "#2f2eaa",
+        confirmButtonText: "Procesar devolución",
+        cancelButtonText: "Cancelar",
+        focusConfirm: false,
+        preConfirm: () => {
+          const reason = String((document.getElementById("return-reason") as HTMLTextAreaElement | null)?.value ?? "").trim();
+          const items = detail.items.filter((item) => (item.remainingQuantity ?? item.quantity) > 0).map((item) => ({ saleItemId: item.id, quantity: Number((document.getElementById(`return-qty-${item.id}`) as HTMLInputElement | null)?.value ?? 0) })).filter((item) => item.quantity > 0);
+          if (!reason) { Swal.showValidationMessage("El motivo es obligatorio"); return undefined; }
+          if (items.length === 0) { Swal.showValidationMessage("Selecciona al menos una cantidad para devolver"); return undefined; }
+          return { reason, items };
+        },
+      });
+      if (!result.isConfirmed || !result.value) return;
+      setBusyOrderId(order.id);
+      const response = await createOrderReturn(order.id, result.value.reason, result.value.items);
+      setReceivedOrders((current) => current.map((item) => item.id === order.id ? { ...item, status: response.status } : item));
+      await Swal.fire({ icon: "success", title: "Devolución registrada", text: `El pedido quedó en estado ${statusLabel[response.status] ?? response.status}.`, confirmButtonColor: "#2f2eaa" });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo registrar la devolución");
+    } finally {
+      setBusyOrderId(null);
+    }
+  }
+
   return (
     <main className="min-h-[calc(100vh-73px)] w-full bg-[#f7f7ff] px-0 py-8 sm:py-10">
       <div className="flex flex-col gap-1">
@@ -190,6 +221,7 @@ export function OrdersPage({ permissions }: OrdersPageProps) {
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
                       {canRead && <button aria-label={`Ver pedido ${order.id}`} className="rounded-lg border border-[#d9dcf4] px-2.5 py-2 text-[#2f2eaa] transition hover:bg-[#eef0ff]" onClick={() => viewOrder(order.id)} title="Ver pedido" type="button">👁</button>}
+                      {canEdit && ["PAID", "PREPARING", "SHIPPED", "DELIVERED", "PARTIALLY_RETURNED"].includes(order.status) && <button aria-label={`Devolver pedido ${order.id}`} className="rounded-lg border border-[#fed7aa] px-2.5 py-2 text-[#c2410c] transition hover:bg-[#fff7ed] disabled:opacity-50" disabled={busyOrderId === order.id} onClick={() => void createReturn(order)} title="Devolución parcial o total" type="button">↩</button>}
                       {canEdit && nextStatus[order.status] && <button className="rounded-lg bg-[#2f2eaa] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#25248e] disabled:opacity-50" disabled={busyOrderId === order.id} onClick={() => updateStatus(order, nextStatus[order.status])} type="button">{busyOrderId === order.id ? "..." : statusLabel[nextStatus[order.status]]}</button>}
                       {canDelete && (order.status === "PAID" || order.status === "PREPARING") && <button aria-label={`Cancelar pedido ${order.id}`} className="rounded-lg border border-[#fecaca] px-2.5 py-2 text-[#dc2626] transition hover:bg-[#fef2f2]" onClick={() => updateStatus(order, "CANCELLED", true)} title="Cancelar pedido" type="button">🗑</button>}
                     </div>

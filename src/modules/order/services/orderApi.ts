@@ -36,6 +36,8 @@ export interface OrderDetail extends OrderListItem {
     productName: string;
     variantName: string | null;
     quantity: number;
+    returnedQuantity: number;
+    remainingQuantity: number;
     unitPrice: number;
     total: number;
   }>;
@@ -79,6 +81,20 @@ export async function cancelOrder(orderId: number): Promise<{ orderId: number; p
   return httpRequest<{ orderId: number; previousStatus: string; status: string }>(`/orders/${orderId}/cancel`, {
     method: "POST",
     body: JSON.stringify({ comment: "Pedido cancelado desde la gestión de pedidos" }),
+  });
+}
+
+export async function createOrderReturn(orderId: number, reason: string, items: Array<{ saleItemId: number; quantity: number }>): Promise<{ returnId: number; orderId: number; previousStatus: string; status: string }> {
+  return httpRequest<{ returnId: number; orderId: number; previousStatus: string; status: string }>(`/orders/${orderId}/returns`, {
+    method: "POST",
+    body: JSON.stringify({ reason, items }),
+  });
+}
+
+export async function createMyOrderReturn(orderId: number, reason: string, items: Array<{ saleItemId: number; quantity: number }>): Promise<{ returnId: number; orderId: number; previousStatus: string; status: string }> {
+  return httpRequest<{ returnId: number; orderId: number; previousStatus: string; status: string }>(`/orders/my/${orderId}/returns`, {
+    method: "POST",
+    body: JSON.stringify({ reason, items }),
   });
 }
 
