@@ -12,7 +12,6 @@ const moduleDefinitions = [
   { feature: "ORDERS", label: "Pedidos", icon: "▤", path: "/orders" },
   { feature: "MYORDERS", label: "Mis pedidos", icon: "▤", path: "/my-orders" },
   { feature: "INVENTORY", label: "Inventario", icon: "◈", path: "/inventory" },
-  { feature: "CHECKOUT", label: "Checkout", icon: "✓", path: "/checkout" },
   { feature: "REPORTS", label: "Reportes", icon: "▥", path: "/reports" },
   { feature: "USERS", label: "Usuarios", icon: "♙", path: "/users" },
   { feature: "COUPONS", label: "Cupones", icon: "%", path: "/coupons" },

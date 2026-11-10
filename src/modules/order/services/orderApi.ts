@@ -81,3 +81,11 @@ export async function cancelOrder(orderId: number): Promise<{ orderId: number; p
     body: JSON.stringify({ comment: "Pedido cancelado desde la gestión de pedidos" }),
   });
 }
+
+export function confirmCheckout(customerId: number, addressId: number, idempotencyKey: string): Promise<{ id: number; status: string; total: number }> {
+  return httpRequest<{ id: number; status: string; total: number }>("/orders/checkout/confirm", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ customerId, addressId, idempotencyKey }),
+  });
+}

@@ -10,6 +10,7 @@ interface RegisterPageProps {
 
 export function RegisterPage({ onAuthenticated }: RegisterPageProps) {
   const [fullName, setFullName] = useState("");
+  const [identification, setIdentification] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -22,7 +23,7 @@ export function RegisterPage({ onAuthenticated }: RegisterPageProps) {
     try {
       const session = await httpRequest<AuthResponse>("/auth/register", {
         method: "POST",
-        body: JSON.stringify({ companyId: 1, fullName, email, password }),
+        body: JSON.stringify({ companyId: 1, fullName, identification, email, password }),
       });
       await onAuthenticated(session);
     } catch (requestError) {
@@ -42,6 +43,7 @@ export function RegisterPage({ onAuthenticated }: RegisterPageProps) {
 
         <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
           <label className="block text-sm font-semibold text-[#334155]">Nombre completo<input className="mt-2 w-full rounded-xl border border-[#d9dcf4] bg-[#fafaff] px-4 py-3 outline-none focus:border-[#2f2eaa]" onChange={(event) => setFullName(event.target.value)} required value={fullName} /></label>
+          <label className="block text-sm font-semibold text-[#334155]">NIT o identificación<input className="mt-2 w-full rounded-xl border border-[#d9dcf4] bg-[#fafaff] px-4 py-3 outline-none focus:border-[#2f2eaa]" onChange={(event) => setIdentification(event.target.value)} required value={identification} /></label>
           <label className="block text-sm font-semibold text-[#334155]">Correo electrónico<input className="mt-2 w-full rounded-xl border border-[#d9dcf4] bg-[#fafaff] px-4 py-3 outline-none focus:border-[#2f2eaa]" onChange={(event) => setEmail(event.target.value)} required type="email" value={email} /></label>
           <label className="block text-sm font-semibold text-[#334155]">Contraseña<input className="mt-2 w-full rounded-xl border border-[#d9dcf4] bg-[#fafaff] px-4 py-3 outline-none focus:border-[#2f2eaa]" minLength={8} onChange={(event) => setPassword(event.target.value)} required type="password" value={password} /></label>
           {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p>}

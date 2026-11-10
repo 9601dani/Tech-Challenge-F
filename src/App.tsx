@@ -9,6 +9,7 @@ import { CheckoutPage } from "./modules/cart/pages/CheckoutPage";
 import { OrdersPage } from "./modules/order/pages/OrdersPage";
 import { MyOrdersPage } from "./modules/order/pages/MyOrdersPage";
 import { MyAddressesPage } from "./modules/customer/pages/MyAddressesPage";
+import { MyProfilePage } from "./modules/customer/pages/MyProfilePage";
 import { ProtectedRoute } from "./shared/guards/ProtectedRoute";
 import { PermissionRoute } from "./shared/guards/PermissionRoute";
 import { ProductManagementPage } from "./modules/catalog/pages/ProductManagementPage";
@@ -85,6 +86,7 @@ function ApplicationRoutes() {
 
   function handleLogout() {
     clearGuestCart();
+    sessionStorage.removeItem("shopcart.customer.identification");
     sessionStorage.clear();
     setCart([]);
     setSession(null);
@@ -96,7 +98,7 @@ function ApplicationRoutes() {
       <Routes>
         <Route path="/login" element={<LoginPage onAuthenticated={handleAuthenticated} />} />
         <Route path="/register" element={<RegisterPage onAuthenticated={handleAuthenticated} />} />
-        <Route path="/checkout" element={<ProtectedRoute><CheckoutPage /></ProtectedRoute>} />
+        <Route path="/checkout" element={<ProtectedRoute><WorkspaceLayout session={session} onLogout={handleLogout}><CheckoutPage /></WorkspaceLayout></ProtectedRoute>} />
         <Route path="/catalog/products/manage" element={<PermissionRoute permissions={session?.permissions ?? []} feature="CATALOG_PRODUCTS" action="canEdit"><WorkspaceLayout session={session} onLogout={handleLogout}><ProductManagementPage canEdit={Boolean(session?.permissions.some((permission) => permission.feature === "CATALOG_PRODUCTS" && permission.enabled && permission.canEdit))} canDelete={Boolean(session?.permissions.some((permission) => permission.feature === "CATALOG_PRODUCTS" && permission.enabled && permission.canDelete))} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/catalog/categories/manage" element={<PermissionRoute permissions={session?.permissions ?? []} feature="CATALOG_PRODUCTS" action="canEdit"><WorkspaceLayout session={session} onLogout={handleLogout}><CategoryManagementPage /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/users" element={<PermissionRoute permissions={session?.permissions ?? []} feature="USERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><UserManagementPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
@@ -107,6 +109,7 @@ function ApplicationRoutes() {
         <Route path="/orders" element={<ProtectedRoute><WorkspaceLayout session={session} onLogout={handleLogout}><OrdersPage permissions={session?.permissions ?? []} /></WorkspaceLayout></ProtectedRoute>} />
         <Route path="/my-orders" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyOrdersPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="/my-orders/addresses" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyAddressesPage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
+        <Route path="/my-orders/profile" element={<PermissionRoute permissions={session?.permissions ?? []} feature="MYORDERS" action="canRead"><WorkspaceLayout session={session} onLogout={handleLogout}><MyProfilePage permissions={session?.permissions ?? []} /></WorkspaceLayout></PermissionRoute>} />
         <Route path="*" element={<WorkspaceLayout session={session} onLogout={handleLogout}><StorefrontPage isAuthenticated={Boolean(session)} permissions={session?.permissions ?? []} onCartChange={setCart} /></WorkspaceLayout>} />
       </Routes>
     </>
